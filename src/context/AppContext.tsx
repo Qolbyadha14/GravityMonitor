@@ -34,6 +34,34 @@ interface AppContextType {
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
+// Helper to convert structured AppError payloads from Rust backend to readable strings
+const parseAppError = (err: any): string => {
+  if (!err) return "Unknown error occurred.";
+  if (typeof err === "string") return err;
+  
+  if (err.code) {
+    switch (err.code) {
+      case "ConfigDirNotFound":
+        return "Local configuration directory could not be resolved.";
+      case "LoginInProgress":
+        return "An active Google authentication session is already running in your browser.";
+      case "FileReadError":
+        return `Failed to read file: ${err.payload?.detail || "Disk I/O failure"}`;
+      case "JsonParseError":
+        return `Failed to parse payload: ${err.payload?.detail || ""}`;
+      case "SubprocessFailed":
+        const stderrMsg = err.payload?.stderr?.trim();
+        return stderrMsg || `Subprocess command failed (exit code: ${err.payload?.code ?? "N/A"})`;
+      case "Generic":
+        return err.payload?.message || "An error occurred in the native backend.";
+      default:
+        return `Backend Error [${err.code}]: ${JSON.stringify(err.payload || {})}`;
+    }
+  }
+  
+  return err.message || String(err);
+};
+
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [accounts, setAccounts] = useState<AccountData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -48,7 +76,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
 
   const [settings, setSettings] = useState<AppSettings>(() => {
-    // Read theme and interval from localStorage (theme/interval only)
     const savedTheme = localStorage.getItem("theme") as "light" | "dark" | null;
     const savedInterval = localStorage.getItem("autoRefreshInterval") as AppSettings["autoRefreshInterval"] | null;
     return {
@@ -84,7 +111,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setAccounts(data);
     } catch (err) {
       console.error("Failed to read accounts from backend:", err);
-      setError(err instanceof Error ? err.message : String(err));
+      setError(parseAppError(err));
     } finally {
       setLoading(false);
     }
@@ -96,12 +123,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setSyncing(true);
     setError(null);
     try {
+      // Proactively refresh any accounts whose token status has expired
+      const expiredAccounts = accounts.filter((a) => a.status === "expired");
+      if (expiredAccounts.length > 0) {
+        console.log("Found expired accounts, refreshing tokens...");
+        for (const acc of expiredAccounts) {
+          try {
+            await invoke("refresh_account_tokens", { email: acc.email });
+          } catch (tokenErr) {
+            console.error(`Failed to refresh tokens for ${acc.email}:`, tokenErr);
+          }
+        }
+      }
+
       await invoke("sync_all_accounts");
       setLastRefresh(new Date());
       await refreshAccounts();
     } catch (err) {
       console.error("Sync all failed:", err);
-      setError(err instanceof Error ? err.message : String(err));
+      setError(parseAppError(err));
     } finally {
       setSyncing(false);
     }
@@ -112,12 +152,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setSyncing(true);
     setError(null);
     try {
+      // Proactively refresh account token if it is expired
+      const acc = accounts.find((a) => a.email === email);
+      if (acc && acc.status === "expired") {
+        console.log(`Account ${email} is expired, refreshing tokens first...`);
+        await invoke("refresh_account_tokens", { email });
+      }
+
       await invoke("sync_account", { email });
       setLastRefresh(new Date());
       await refreshAccounts();
     } catch (err) {
       console.error(`Sync for ${email} failed:`, err);
-      setError(err instanceof Error ? err.message : String(err));
+      setError(parseAppError(err));
     } finally {
       setSyncing(false);
     }
@@ -131,7 +178,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       await refreshAccounts();
     } catch (err) {
       console.error(`Switching active account to ${email} failed:`, err);
-      setError(err instanceof Error ? err.message : String(err));
+      setError(parseAppError(err));
     }
   };
 
@@ -143,7 +190,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       await refreshAccounts();
     } catch (err) {
       console.error(`Removing account ${email} failed:`, err);
-      setError(err instanceof Error ? err.message : String(err));
+      setError(parseAppError(err));
     }
   };
 
@@ -155,7 +202,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       await refreshAccounts();
     } catch (err) {
       console.error("Failed to clear sessions:", err);
-      setError(err instanceof Error ? err.message : String(err));
+      setError(parseAppError(err));
     }
   };
 
@@ -190,7 +237,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setLoginState((prev) => ({
         ...prev,
         status: "error",
-        errorMsg: err instanceof Error ? err.message : String(err),
+        errorMsg: parseAppError(err),
       }));
     }
   };
@@ -250,7 +297,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             status: "success",
             logs: [...prev.logs, "Authentication successful! Account added."],
           }));
-          refreshAccounts(); // Refresh accounts list
+          refreshAccounts();
         } else {
           setLoginState((prev) => ({
             ...prev,
@@ -295,7 +342,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         clearInterval(refreshTimerRef.current);
       }
     };
-  }, [settings.autoRefreshInterval]);
+  }, [settings.autoRefreshInterval, accounts]); // include accounts to read newest state
 
   const activeAccount = accounts.find((a) => a.isActive) || null;
 

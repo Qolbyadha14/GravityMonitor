@@ -13,6 +13,36 @@ pub struct AppState {
     login_process: Arc<Mutex<Option<tokio::process::Child>>>,
 }
 
+// Structured error enums for better front-end error reporting
+#[derive(serde::Serialize, Debug, Clone)]
+#[serde(tag = "code", content = "payload")]
+pub enum AppError {
+    ConfigDirNotFound,
+    FileReadError { path: String, detail: String },
+    JsonParseError { detail: String },
+    SubprocessFailed { code: Option<i32>, stdout: String, stderr: String },
+    LoginInProgress,
+    Generic { message: String },
+}
+
+impl std::fmt::Display for AppError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AppError::ConfigDirNotFound => write!(f, "Config directory not found"),
+            AppError::FileReadError { path, detail } => write!(f, "Failed to read file '{}': {}", path, detail),
+            AppError::JsonParseError { detail } => write!(f, "JSON parsing failed: {}", detail),
+            AppError::SubprocessFailed { code, stdout, stderr } => {
+                write!(f, "Subprocess failed with code {:?}. stdout: {}, stderr: {}", code, stdout, stderr)
+            }
+            AppError::LoginInProgress => write!(f, "A login session is already active"),
+            AppError::Generic { message } => write!(f, "{}", message),
+        }
+    }
+}
+
+// Required for Tauri to compile Result with this error
+impl std::error::Error for AppError {}
+
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 struct PromptCredits {
     available: f64,
@@ -123,14 +153,25 @@ fn get_config_dir() -> Option<PathBuf> {
     }
 }
 
-// Runs a CLI command via login shell (inherits Brew, NVM, Node paths)
-fn run_cli_command(args_str: &str) -> Result<String, String> {
+// Runs a CLI command via dynamic shell (inherits node paths, brew, nvm paths)
+fn run_cli_command(args_str: &str) -> Result<String, AppError> {
     let cmd = format!("npx antigravity-usage {}", args_str);
-    let output = Command::new("zsh")
-        .arg("-l")
-        .arg("-c")
+
+    #[cfg(target_os = "windows")]
+    let output = Command::new("cmd")
+        .arg("/c")
         .arg(&cmd)
         .output();
+
+    #[cfg(not(target_os = "windows"))]
+    let output = {
+        let shell = env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+        let mut command = Command::new(&shell);
+        if shell.contains("zsh") || shell.contains("bash") {
+            command.arg("-l"); // load user env paths
+        }
+        command.arg("-c").arg(&cmd).output()
+    };
 
     match output {
         Ok(out) => {
@@ -139,19 +180,22 @@ fn run_cli_command(args_str: &str) -> Result<String, String> {
             if out.status.success() {
                 Ok(stdout)
             } else {
-                Err(format!("Command failed: {}\nStderr: {}", stdout, stderr))
+                Err(AppError::SubprocessFailed {
+                    code: out.status.code(),
+                    stdout,
+                    stderr,
+                })
             }
         }
-        Err(e) => Err(format!("Failed to execute command: {}", e)),
+        Err(e) => Err(AppError::Generic {
+            message: format!("Failed to execute shell command: {}", e),
+        }),
     }
 }
 
 #[tauri::command]
-fn get_accounts_data() -> Result<Vec<AccountData>, String> {
-    let config_dir = match get_config_dir() {
-        Some(dir) => dir,
-        None => return Err("Could not determine config directory".into()),
-    };
+fn get_accounts_data() -> Result<Vec<AccountData>, AppError> {
+    let config_dir = get_config_dir().ok_or(AppError::ConfigDirNotFound)?;
 
     if !config_dir.exists() {
         return Ok(Vec::new());
@@ -175,7 +219,11 @@ fn get_accounts_data() -> Result<Vec<AccountData>, String> {
     }
 
     let mut accounts = Vec::new();
-    let entries = fs::read_dir(&accounts_dir).map_err(|e| e.to_string())?;
+    let entries = fs::read_dir(&accounts_dir).map_err(|e| AppError::FileReadError {
+        path: accounts_dir.to_string_lossy().to_string(),
+        detail: e.to_string(),
+    })?;
+
     for entry in entries {
         let entry = match entry {
             Ok(e) => e,
@@ -269,37 +317,42 @@ fn get_accounts_data() -> Result<Vec<AccountData>, String> {
 }
 
 #[tauri::command]
-async fn sync_all_accounts() -> Result<serde_json::Value, String> {
+async fn sync_all_accounts() -> Result<serde_json::Value, AppError> {
     let output = tokio::task::spawn_blocking(|| {
         run_cli_command("quota --json --all --refresh")
-    }).await.map_err(|e| e.to_string())?;
+    }).await.map_err(|e| AppError::Generic { message: e.to_string() })?;
 
     match output {
         Ok(stdout) => {
             let json: serde_json::Value = serde_json::from_str(&stdout)
-                .map_err(|e| format!("Failed to parse JSON output: {}\nRaw: {}", e, stdout))?;
+                .map_err(|e| AppError::JsonParseError {
+                    detail: format!("Failed to parse JSON output: {}\nRaw: {}", e, stdout),
+                })?;
             Ok(json)
         }
         Err(e) => {
-            if e.contains("No accounts found") {
-                Ok(serde_json::json!([]))
-            } else {
-                Err(e)
+            match &e {
+                AppError::SubprocessFailed { stdout, .. } if stdout.contains("No accounts found") => {
+                    Ok(serde_json::json!([]))
+                }
+                _ => Err(e),
             }
         }
     }
 }
 
 #[tauri::command]
-async fn sync_account(email: String) -> Result<serde_json::Value, String> {
+async fn sync_account(email: String) -> Result<serde_json::Value, AppError> {
     let output = tokio::task::spawn_blocking(move || {
         run_cli_command(&format!("quota --json --refresh --account {}", email))
-    }).await.map_err(|e| e.to_string())?;
+    }).await.map_err(|e| AppError::Generic { message: e.to_string() })?;
 
     match output {
         Ok(stdout) => {
             let json: serde_json::Value = serde_json::from_str(&stdout)
-                .map_err(|e| format!("Failed to parse JSON output: {}\nRaw: {}", e, stdout))?;
+                .map_err(|e| AppError::JsonParseError {
+                    detail: format!("Failed to parse JSON output: {}\nRaw: {}", e, stdout),
+                })?;
             Ok(json)
         }
         Err(e) => Err(e),
@@ -307,33 +360,61 @@ async fn sync_account(email: String) -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
-fn switch_account(email: String) -> Result<String, String> {
+async fn refresh_account_tokens(email: Option<String>) -> Result<String, AppError> {
+    let arg = match email {
+        Some(e) => format!("accounts refresh {}", e),
+        None => "accounts refresh --all".to_string(),
+    };
+    tokio::task::spawn_blocking(move || {
+        run_cli_command(&arg)
+    }).await.map_err(|e| AppError::Generic {
+        message: format!("Token refresh blocking task failed: {}", e)
+    })?
+}
+
+#[tauri::command]
+fn switch_account(email: String) -> Result<String, AppError> {
     run_cli_command(&format!("accounts switch {}", email))
 }
 
 #[tauri::command]
-fn remove_account(email: String) -> Result<String, String> {
+fn remove_account(email: String) -> Result<String, AppError> {
     run_cli_command(&format!("accounts remove {} --force", email))
 }
 
 #[tauri::command]
-async fn start_login_flow(app: AppHandle, state: tauri::State<'_, AppState>) -> Result<(), String> {
-    let mut lock = state.login_process.lock().map_err(|e| e.to_string())?;
+async fn start_login_flow(app: AppHandle, state: tauri::State<'_, AppState>) -> Result<(), AppError> {
+    let mut lock = state.login_process.lock().map_err(|_| AppError::Generic { message: "Failed to lock active process Mutex".to_string() })?;
     if lock.is_some() {
-        return Err("A login session is already active.".into());
+        return Err(AppError::LoginInProgress);
     }
 
-    let mut child = tokio::process::Command::new("zsh")
-        .arg("-l")
-        .arg("-c")
+    #[cfg(target_os = "windows")]
+    let spawn_res = tokio::process::Command::new("cmd")
+        .arg("/c")
         .arg("npx antigravity-usage login")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("Failed to start login subprocess: {}", e))?;
+        .spawn();
 
-    let stdout = child.stdout.take().ok_or("Failed to open stdout pipe")?;
-    let stderr = child.stderr.take().ok_or("Failed to open stderr pipe")?;
+    #[cfg(not(target_os = "windows"))]
+    let spawn_res = {
+        let shell = env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+        let mut cmd = tokio::process::Command::new(&shell);
+        if shell.contains("zsh") || shell.contains("bash") {
+            cmd.arg("-l"); // load profile logic
+        }
+        cmd.arg("-c")
+            .arg("npx antigravity-usage login")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+    };
+
+    let mut child = spawn_res.map_err(|e| AppError::Generic { message: format!("Failed to spawn login process: {}", e) })?;
+
+    let stdout = child.stdout.take().ok_or(AppError::Generic { message: "Failed to open stdout pipe".to_string() })?;
+    let stderr = child.stderr.take().ok_or(AppError::Generic { message: "Failed to open stderr pipe".to_string() })?;
 
     *lock = Some(child);
     drop(lock);
@@ -387,9 +468,9 @@ async fn start_login_flow(app: AppHandle, state: tauri::State<'_, AppState>) -> 
 }
 
 #[tauri::command]
-async fn cancel_login_flow(state: tauri::State<'_, AppState>) -> Result<(), String> {
+async fn cancel_login_flow(state: tauri::State<'_, AppState>) -> Result<(), AppError> {
     let child = {
-        let mut lock = state.login_process.lock().map_err(|e| e.to_string())?;
+        let mut lock = state.login_process.lock().map_err(|_| AppError::Generic { message: "Failed to lock AppState".to_string() })?;
         lock.take()
     }; // MutexGuard is dropped here
 
@@ -397,26 +478,26 @@ async fn cancel_login_flow(state: tauri::State<'_, AppState>) -> Result<(), Stri
         let _ = child.kill().await;
         return Ok(());
     }
-    Err("No login flow is currently active.".into())
+    Err(AppError::Generic { message: "No login flow is currently active.".to_string() })
 }
 
 #[tauri::command]
-fn open_session_folder() -> Result<(), String> {
+fn open_session_folder() -> Result<(), AppError> {
     if let Some(dir) = get_config_dir() {
         if dir.exists() {
-            open::that(dir).map_err(|e| e.to_string())?;
+            open::that(dir).map_err(|e| AppError::Generic { message: e.to_string() })?;
             return Ok(());
         }
     }
-    Err("Config folder does not exist yet.".into())
+    Err(AppError::Generic { message: "Config folder does not exist yet.".to_string() })
 }
 
 #[tauri::command]
-fn clear_all_sessions() -> Result<(), String> {
+fn clear_all_sessions() -> Result<(), AppError> {
     if let Some(dir) = get_config_dir() {
         if dir.exists() {
-            fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
-            fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+            fs::remove_dir_all(&dir).map_err(|e| AppError::Generic { message: e.to_string() })?;
+            fs::create_dir_all(&dir).map_err(|e| AppError::Generic { message: e.to_string() })?;
             return Ok(());
         }
     }
@@ -424,7 +505,7 @@ fn clear_all_sessions() -> Result<(), String> {
 }
 
 #[tauri::command]
-fn get_versions() -> Result<serde_json::Value, String> {
+fn get_versions() -> Result<serde_json::Value, AppError> {
     let tauri_version = env!("CARGO_PKG_VERSION").to_string();
     let cli_version = match run_cli_command("--version") {
         Ok(v) => v.trim().to_string(),
@@ -447,6 +528,7 @@ pub fn run() {
             get_accounts_data,
             sync_all_accounts,
             sync_account,
+            refresh_account_tokens,
             switch_account,
             remove_account,
             start_login_flow,
