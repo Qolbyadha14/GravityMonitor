@@ -1,5 +1,6 @@
-import React from "react";
+import React, { useState } from "react";
 import { AccountData } from "../types";
+import { useApp } from "../context/AppContext";
 import {
   RefreshCw,
   Star,
@@ -12,6 +13,16 @@ import {
   AlertCircle,
   Clock,
   User,
+  Cpu,
+  Globe,
+  HardDrive,
+  CalendarClock,
+  Tag,
+  ToggleLeft,
+  ToggleRight,
+  Flame,
+  CheckCircle2,
+  XCircle,
 } from "lucide-react";
 import { cn } from "../utils/cn";
 
@@ -30,24 +41,19 @@ export const AccountDetail: React.FC<AccountDetailProps> = ({
   onSwitch,
   onRemove,
 }) => {
+  const { wakeupStatus, refreshWakeup } = useApp();
+  const [showAutocomplete, setShowAutocomplete] = useState(false);
+  const [syncingWakeup, setSyncingWakeup] = useState(false);
+
   // ── helpers ──────────────────────────────────────────────────────────────
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "valid":
-        return {
-          cls: "bg-success/12 text-success border-success/25",
-          icon: <Shield size={12} />,
-        };
+        return { cls: "bg-success/12 text-success border-success/25", icon: <Shield size={11} /> };
       case "expired":
-        return {
-          cls: "bg-warning/12 text-warning border-warning/25",
-          icon: <ShieldAlert size={12} />,
-        };
+        return { cls: "bg-warning/12 text-warning border-warning/25", icon: <ShieldAlert size={11} /> };
       default:
-        return {
-          cls: "bg-danger/12 text-danger border-danger/25",
-          icon: <AlertCircle size={12} />,
-        };
+        return { cls: "bg-danger/12 text-danger border-danger/25", icon: <AlertCircle size={11} /> };
     }
   };
 
@@ -73,8 +79,49 @@ export const AccountDetail: React.FC<AccountDetailProps> = ({
     if (ms === undefined || ms === null || ms <= 0) return null;
     const hours = Math.floor(ms / (1000 * 60 * 60));
     const minutes = Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60));
+    if (hours > 24) return `${Math.floor(hours / 24)}d ${hours % 24}h`;
     if (hours > 0) return `${hours}h ${minutes}m`;
     return `${minutes}m`;
+  };
+
+  const formatDateTime = (tsOrMs: string | number | null | undefined) => {
+    if (!tsOrMs) return "N/A";
+    const d = typeof tsOrMs === "number" ? new Date(tsOrMs) : new Date(tsOrMs);
+    return d.toLocaleString(undefined, {
+      month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+    });
+  };
+
+  const getMethodBadge = (method: string | undefined) => {
+    switch (method) {
+      case "google":
+        return { label: "Google API", cls: "bg-primary/10 text-primary border-primary/20", icon: <Globe size={10} /> };
+      case "local":
+        return { label: "Local Cache", cls: "bg-secondary text-muted-foreground border-border", icon: <HardDrive size={10} /> };
+      default:
+        return { label: method ?? "Auto", cls: "bg-secondary text-muted-foreground border-border", icon: <Cpu size={10} /> };
+    }
+  };
+
+  const getPlanBadge = (planType: string | undefined | null) => {
+    if (!planType) return null;
+    const lower = planType.toLowerCase();
+    if (lower.includes("pro") || lower.includes("premium")) {
+      return { label: planType, cls: "bg-primary/10 text-primary border-primary/20" };
+    }
+    if (lower.includes("free")) {
+      return { label: planType, cls: "bg-secondary/80 text-muted-foreground border-border" };
+    }
+    return { label: planType, cls: "bg-secondary/80 text-muted-foreground border-border" };
+  };
+
+  const handleRefreshWakeup = async () => {
+    setSyncingWakeup(true);
+    try {
+      await refreshWakeup();
+    } finally {
+      setSyncingWakeup(false);
+    }
   };
 
   // ── empty state ───────────────────────────────────────────────────────────
@@ -100,6 +147,16 @@ export const AccountDetail: React.FC<AccountDetailProps> = ({
   const chatModels = allModels.filter((m) => !m.isAutocompleteOnly);
   const autocompleteModels = allModels.filter((m) => m.isAutocompleteOnly);
   const statusBadge = getStatusBadge(account.status);
+  const methodBadge = getMethodBadge(snapshot?.method);
+  const planBadge = getPlanBadge(snapshot?.planType);
+
+  // Token expiry countdown
+  const now = Date.now();
+  const tokenExpMs = account.tokenExpiresAt ? account.tokenExpiresAt - now : null;
+  const tokenExpLabel = tokenExpMs !== null && tokenExpMs > 0
+    ? formatTime(tokenExpMs) + " remaining"
+    : tokenExpMs !== null ? "Expired" : null;
+  const tokenIsExpiringSoon = tokenExpMs !== null && tokenExpMs > 0 && tokenExpMs < 30 * 60 * 1000; // < 30min
 
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
@@ -107,54 +164,62 @@ export const AccountDetail: React.FC<AccountDetailProps> = ({
       <div className="shrink-0 px-6 py-4 border-b border-border bg-card/50">
         <div className="flex items-start justify-between gap-3">
           {/* Left: email + badges */}
-          <div className="min-w-0 space-y-1.5">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span
-                className={cn(
-                  "text-[11px] px-2 py-0.5 rounded-full border font-semibold flex items-center gap-1",
-                  statusBadge.cls
-                )}
-              >
+          <div className="min-w-0 space-y-2">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {/* Auth status */}
+              <span className={cn("text-[10px] px-2 py-0.5 rounded-full border font-semibold flex items-center gap-1", statusBadge.cls)}>
                 {statusBadge.icon}
                 {account.status.toUpperCase()}
               </span>
+
+              {/* Active badge */}
               {account.isActive && (
-                <span className="text-[11px] px-2 py-0.5 rounded-full border border-primary/20 bg-primary/10 text-primary font-semibold flex items-center gap-1">
-                  <Star size={9} className="fill-current" />
-                  ACTIVE
+                <span className="text-[10px] px-2 py-0.5 rounded-full border border-primary/20 bg-primary/10 text-primary font-semibold flex items-center gap-1">
+                  <Star size={9} className="fill-current" /> ACTIVE
                 </span>
               )}
-              {snapshot?.planType && (
-                <span className="text-[11px] px-2 py-0.5 rounded-full border border-border bg-secondary/50 text-muted-foreground font-medium capitalize">
-                  {snapshot.planType} Plan
+
+              {/* Plan Type */}
+              {planBadge && (
+                <span className={cn("text-[10px] px-2 py-0.5 rounded-full border font-semibold flex items-center gap-1 capitalize", planBadge.cls)}>
+                  <Tag size={9} />
+                  {planBadge.label}
+                </span>
+              )}
+
+              {/* Data method */}
+              {snapshot && (
+                <span className={cn("text-[10px] px-2 py-0.5 rounded-full border font-medium flex items-center gap-1", methodBadge.cls)}>
+                  {methodBadge.icon}
+                  {methodBadge.label}
                 </span>
               )}
             </div>
-            <h2
-              className="text-sm font-bold text-card-foreground truncate max-w-[340px]"
-              title={account.email}
-            >
+
+            <h2 className="text-sm font-bold text-card-foreground truncate max-w-[340px]" title={account.email}>
               {account.email}
             </h2>
-            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-              <Clock size={11} />
-              <span>
-                Last synced:{" "}
-                {snapshot?.timestamp
-                  ? new Date(snapshot.timestamp).toLocaleTimeString()
-                  : "Never"}
-              </span>
+
+            <div className="flex items-center gap-3 text-[11px] text-muted-foreground flex-wrap">
+              {snapshot?.timestamp && (
+                <span className="flex items-center gap-1">
+                  <Clock size={10} />
+                  Synced {new Date(snapshot.timestamp).toLocaleTimeString()}
+                </span>
+              )}
+              {tokenExpLabel && (
+                <span className={cn("flex items-center gap-1 font-medium", tokenIsExpiringSoon ? "text-warning" : "")}>
+                  <CalendarClock size={10} />
+                  Token: {tokenExpLabel}
+                </span>
+              )}
             </div>
           </div>
 
           {/* Right: action buttons */}
           <div className="flex items-center gap-1.5 shrink-0">
             <button
-              onClick={() => {
-                if (confirm(`Remove account session for ${account.email}?`)) {
-                  onRemove(account.email);
-                }
-              }}
+              onClick={() => { if (confirm(`Remove account session for ${account.email}?`)) onRemove(account.email); }}
               className="inline-flex items-center justify-center p-1.5 border border-border hover:bg-destructive/10 hover:border-destructive/20 text-muted-foreground hover:text-danger rounded-md transition cursor-pointer"
               title="Remove session"
             >
@@ -183,7 +248,40 @@ export const AccountDetail: React.FC<AccountDetailProps> = ({
 
       {/* ── Scrollable Content ──────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
-        {/* Prompt Credits */}
+
+        {/* ── Account Overview Cards (Plan + Credits summary) ─────────── */}
+        <div className="grid grid-cols-2 gap-3">
+          {/* Plan Type card */}
+          <div className="border border-border bg-card rounded-lg p-3.5 space-y-1">
+            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+              <Tag size={10} /> Plan Type
+            </p>
+            <p className={cn("text-base font-bold capitalize", planBadge ? planBadge.cls.match(/text-\S+/)?.[0] : "text-card-foreground")}>
+              {snapshot?.planType ?? <span className="text-muted-foreground text-xs font-normal">Not available</span>}
+            </p>
+            <p className="text-[10px] text-muted-foreground">
+              via {methodBadge.label}
+            </p>
+          </div>
+
+          {/* Token Expiry card */}
+          <div className={cn(
+            "border rounded-lg p-3.5 space-y-1",
+            tokenIsExpiringSoon ? "border-warning/30 bg-warning/5" : "border-border bg-card"
+          )}>
+            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+              <CalendarClock size={10} /> Token Expiry
+            </p>
+            <p className={cn("text-sm font-bold", tokenIsExpiringSoon ? "text-warning" : "text-card-foreground")}>
+              {tokenExpLabel ?? "N/A"}
+            </p>
+            <p className="text-[10px] text-muted-foreground">
+              {account.tokenExpiresAt ? formatDateTime(account.tokenExpiresAt) : "No token data"}
+            </p>
+          </div>
+        </div>
+
+        {/* ── Prompt Credits ──────────────────────────────────────────── */}
         {credits && (
           <section className="space-y-2">
             <div className="flex items-center gap-1.5 text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
@@ -191,28 +289,37 @@ export const AccountDetail: React.FC<AccountDetailProps> = ({
               <span>Prompt Credits</span>
             </div>
             <div className="border border-border bg-card rounded-lg p-4 space-y-3">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Monthly Available</span>
-                <span className="font-mono font-bold text-card-foreground">
-                  {credits.available}{" "}
-                  <span className="text-muted-foreground font-normal">/ {credits.monthly}</span>
-                </span>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xl font-bold font-mono text-card-foreground">
+                    {credits.available.toLocaleString()}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    of {credits.monthly.toLocaleString()} monthly
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className={cn("text-lg font-bold font-mono", getQuotaTextColor(credits.remainingPercentage, credits.remainingPercentage === 0))}>
+                    {Math.round(credits.remainingPercentage * 100)}%
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">remaining</p>
+                </div>
               </div>
               <div className="w-full bg-secondary h-2 rounded-full overflow-hidden">
                 <div
-                  className="bg-primary h-full rounded-full transition-all duration-500"
+                  className={cn("h-full rounded-full transition-all duration-500", getQuotaBarColor(credits.remainingPercentage, credits.remainingPercentage === 0))}
                   style={{ width: `${credits.remainingPercentage * 100}%` }}
                 />
               </div>
               <div className="flex justify-between text-[11px] text-muted-foreground">
-                <span>Used: {Math.round(credits.usedPercentage * 100)}%</span>
-                <span>Remaining: {Math.round(credits.remainingPercentage * 100)}%</span>
+                <span>Used {Math.round(credits.usedPercentage * 100)}%</span>
+                <span>{Math.round((credits.monthly - credits.available))} used of {credits.monthly.toLocaleString()}</span>
               </div>
             </div>
           </section>
         )}
 
-        {/* Agent / Chat Model Quotas */}
+        {/* ── Agent / Chat Model Quotas ───────────────────────────────── */}
         <section className="space-y-2">
           <div className="flex items-center gap-1.5 text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
             <Sparkles size={12} />
@@ -232,10 +339,7 @@ export const AccountDetail: React.FC<AccountDetailProps> = ({
                 const resetLabel = formatTime(model.timeUntilResetMs);
 
                 return (
-                  <div
-                    key={model.modelId}
-                    className="border border-border bg-card rounded-lg p-3.5 space-y-2.5"
-                  >
+                  <div key={model.modelId} className="border border-border bg-card rounded-lg p-3.5 space-y-2.5">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 space-y-0.5">
                         <p className="text-xs font-semibold text-card-foreground truncate" title={model.label}>
@@ -245,36 +349,25 @@ export const AccountDetail: React.FC<AccountDetailProps> = ({
                           {model.modelId}
                         </p>
                       </div>
-                      <span
-                        className={cn(
-                          "text-sm font-bold font-mono shrink-0",
-                          getQuotaTextColor(pct, isExh)
+                      <div className="text-right shrink-0">
+                        <span className={cn("text-sm font-bold font-mono", getQuotaTextColor(pct, isExh))}>
+                          {isExh ? "EXHAUSTED" : pct !== undefined && pct !== null ? `${Math.round(pct * 100)}%` : "N/A"}
+                        </span>
+                        {resetLabel && (
+                          <p className="text-[10px] text-warning font-medium mt-0.5">
+                            ↻ {resetLabel}
+                          </p>
                         )}
-                      >
-                        {isExh
-                          ? "EXHAUSTED"
-                          : pct !== undefined && pct !== null
-                          ? `${Math.round(pct * 100)}%`
-                          : "N/A"}
-                      </span>
+                      </div>
                     </div>
 
                     {pct !== undefined && pct !== null && (
                       <div className="w-full bg-secondary h-1.5 rounded-full overflow-hidden">
                         <div
-                          className={cn(
-                            "h-full rounded-full transition-all duration-500",
-                            getQuotaBarColor(pct, isExh)
-                          )}
+                          className={cn("h-full rounded-full transition-all duration-500", getQuotaBarColor(pct, isExh))}
                           style={{ width: `${pct * 100}%` }}
                         />
                       </div>
-                    )}
-
-                    {resetLabel && (
-                      <p className="text-[10px] text-warning font-medium text-right">
-                        Resets in {resetLabel}
-                      </p>
                     )}
                   </div>
                 );
@@ -287,85 +380,248 @@ export const AccountDetail: React.FC<AccountDetailProps> = ({
           )}
         </section>
 
-        {/* Autocomplete Models (collapsed by default, shown if exist) */}
-        {autocompleteModels.length > 0 && (
-          <section className="space-y-2">
-            <div className="flex items-center gap-1.5 text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
-              <span>Autocomplete Quotas</span>
-              <span className="ml-auto normal-case font-medium text-muted-foreground/70 tracking-normal">
-                {autocompleteModels.length} model{autocompleteModels.length !== 1 ? "s" : ""}
-              </span>
-            </div>
-            <div className="space-y-2">
-              {autocompleteModels.map((model) => {
-                const pct = model.remainingPercentage;
-                const isExh = model.isExhausted;
-                const resetLabel = formatTime(model.timeUntilResetMs);
-
-                return (
-                  <div
-                    key={model.modelId}
-                    className="border border-border/60 bg-secondary/20 rounded-lg p-3 space-y-2"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-[11px] font-medium text-muted-foreground truncate" title={model.label}>
-                        {model.label}
-                      </span>
-                      <span className={cn("text-xs font-bold font-mono shrink-0", getQuotaTextColor(pct, isExh))}>
-                        {isExh ? "EXHAUSTED" : pct !== undefined && pct !== null ? `${Math.round(pct * 100)}%` : "N/A"}
-                      </span>
-                    </div>
-                    {pct !== undefined && pct !== null && (
-                      <div className="w-full bg-secondary h-1 rounded-full overflow-hidden">
-                        <div
-                          className={cn("h-full rounded-full transition-all duration-500", getQuotaBarColor(pct, isExh))}
-                          style={{ width: `${pct * 100}%` }}
-                        />
-                      </div>
-                    )}
-                    {resetLabel && (
-                      <p className="text-[10px] text-warning font-medium text-right">
-                        Resets in {resetLabel}
-                      </p>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-        )}
-
-        {/* Account metadata */}
+        {/* ── Autocomplete Models Toggle & List ─────────────────────────── */}
         <section className="space-y-2">
+          <div className="flex items-center justify-between border-t border-border/40 pt-4">
+            <div className="flex items-center gap-1.5 text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
+              <Cpu size={12} />
+              <span>Autocomplete Models</span>
+              {autocompleteModels.length > 0 && (
+                <span className="normal-case font-medium text-muted-foreground/60 tracking-normal ml-1">
+                  ({autocompleteModels.length})
+                </span>
+              )}
+            </div>
+
+            <button
+              onClick={() => setShowAutocomplete(!showAutocomplete)}
+              className="flex items-center gap-1 text-[11px] font-semibold text-muted-foreground hover:text-card-foreground transition cursor-pointer"
+            >
+              {showAutocomplete ? (
+                <>
+                  Hide <ToggleRight size={16} className="text-primary" />
+                </>
+              ) : (
+                <>
+                  Show <ToggleLeft size={16} />
+                </>
+              )}
+            </button>
+          </div>
+
+          {showAutocomplete && (
+            <div className="space-y-2 animate-fadeIn">
+              {autocompleteModels.length > 0 ? (
+                autocompleteModels.map((model) => {
+                  const pct = model.remainingPercentage;
+                  const isExh = model.isExhausted;
+                  const resetLabel = formatTime(model.timeUntilResetMs);
+
+                  return (
+                    <div key={model.modelId} className="border border-border/60 bg-secondary/20 rounded-lg p-3 space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <span className="text-[11px] font-medium text-muted-foreground truncate block" title={model.label}>
+                            {model.label}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground/60 font-mono truncate block">
+                            {model.modelId}
+                          </span>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <span className={cn("text-xs font-bold font-mono", getQuotaTextColor(pct, isExh))}>
+                            {isExh ? "EXHAUSTED" : pct !== undefined && pct !== null ? `${Math.round(pct * 100)}%` : "N/A"}
+                          </span>
+                          {resetLabel && (
+                            <p className="text-[10px] text-warning font-medium mt-0.5">↻ {resetLabel}</p>
+                          )}
+                        </div>
+                      </div>
+                      {pct !== undefined && pct !== null && (
+                        <div className="w-full bg-secondary h-1 rounded-full overflow-hidden">
+                          <div
+                            className={cn("h-full rounded-full transition-all duration-500", getQuotaBarColor(pct, isExh))}
+                            style={{ width: `${pct * 100}%` }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="border border-dashed border-border rounded-lg py-5 text-center text-[11px] text-muted-foreground bg-secondary/5">
+                  No autocomplete models in cache.
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+
+        {/* ── Auto Wakeup (Warmup) Widget ──────────────────────────────── */}
+        <section className="space-y-2 border-t border-border/40 pt-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5 text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
+              <Flame size={12} className={cn(wakeupStatus?.configured && "text-warning animate-pulse")} />
+              <span>Auto Wakeup Status</span>
+            </div>
+            <button
+              onClick={handleRefreshWakeup}
+              disabled={syncingWakeup}
+              className="p-1 hover:bg-secondary rounded text-muted-foreground hover:text-card-foreground transition cursor-pointer"
+              title="Refresh wakeup status"
+            >
+              <RefreshCw size={11} className={cn(syncingWakeup && "animate-spin")} />
+            </button>
+          </div>
+
+          {wakeupStatus ? (
+            <div className="border border-border bg-card rounded-lg p-3.5 space-y-3.5">
+              {/* Configure status */}
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">Status</span>
+                <span className={cn(
+                  "font-bold px-2 py-0.5 rounded-full border text-[10px]",
+                  wakeupStatus.configured
+                    ? "bg-warning/10 text-warning border-warning/20"
+                    : "bg-secondary text-muted-foreground border-border"
+                )}>
+                  {wakeupStatus.configured ? "ACTIVE" : "NOT CONFIGURED"}
+                </span>
+              </div>
+
+              {wakeupStatus.configured && wakeupStatus.config && (
+                <div className="text-[11px] text-muted-foreground bg-secondary/30 rounded p-2.5 space-y-1 border border-border/50">
+                  <p>
+                    <span className="font-semibold text-card-foreground">Schedule:</span>{" "}
+                    {wakeupStatus.config.schedule?.type === "interval"
+                      ? `Every ${wakeupStatus.config.schedule.intervalHours} hours`
+                      : wakeupStatus.config.schedule?.type === "daily"
+                      ? `Daily at ${wakeupStatus.config.schedule.times?.join(", ")}`
+                      : wakeupStatus.config.schedule?.cronExpression ?? "Custom"}
+                  </p>
+                  {wakeupStatus.config.models && wakeupStatus.config.models.length > 0 && (
+                    <p>
+                      <span className="font-semibold text-card-foreground">Models:</span>{" "}
+                      {wakeupStatus.config.models.slice(0, 3).join(", ")}
+                      {wakeupStatus.config.models.length > 3 ? "..." : ""}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* History entries */}
+              <div className="space-y-2 pt-1">
+                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                  Last Wakeup Triggers
+                </p>
+                {wakeupStatus.history && wakeupStatus.history.length > 0 ? (
+                  <div className="space-y-1.5 max-h-40 overflow-y-auto divide-y divide-border/40">
+                    {wakeupStatus.history.map((record, i) => (
+                      <div key={i} className="flex items-start justify-between text-xs py-1.5 first:pt-0 gap-3">
+                        <div className="min-w-0">
+                          <p className="font-semibold text-card-foreground truncate text-[11px]" title={record.email}>
+                            {record.email ?? "Unknown Account"}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground font-mono truncate" title={record.model}>
+                            {record.model ?? "All Models"}
+                          </p>
+                          <p className="text-[9px] text-muted-foreground/60 mt-0.5">
+                            {formatDateTime(record.timestamp)}
+                          </p>
+                        </div>
+                        <div className="text-right shrink-0 flex flex-col items-end gap-1">
+                          <span className={cn(
+                            "inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded-full font-bold",
+                            record.success
+                              ? "bg-success/10 text-success"
+                              : "bg-danger/10 text-danger"
+                          )}>
+                            {record.success ? (
+                              <>
+                                <CheckCircle2 size={8} /> OK
+                              </>
+                            ) : (
+                              <>
+                                <XCircle size={8} /> FAIL
+                              </>
+                            )}
+                          </span>
+                          {record.durationMs !== undefined && (
+                            <span className="text-[9px] text-muted-foreground/60 font-mono">
+                              {record.durationMs}ms
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-[10px] text-muted-foreground text-center py-2 bg-secondary/10 rounded border border-dashed border-border/50">
+                    No trigger history recorded yet.
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="border border-dashed border-border rounded-lg py-5 text-center text-xs text-muted-foreground bg-secondary/10">
+              Loading wakeup status...
+            </div>
+          )}
+
+          {!wakeupStatus?.configured && (
+            <p className="text-[10px] text-muted-foreground leading-relaxed px-1">
+              💡 Setup auto wakeup in terminal to automatically warm up your AI models:
+              <code className="block bg-secondary px-2 py-1.5 rounded mt-1.5 font-mono select-all text-card-foreground border border-border/60">
+                antigravity-usage wakeup config
+              </code>
+            </p>
+          )}
+        </section>
+
+        {/* ── Account Info ────────────────────────────────────────────── */}
+        <section className="space-y-2 border-t border-border/40 pt-4">
           <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
             Account Info
           </div>
-          <div className="border border-border bg-card rounded-lg divide-y divide-border/60">
-            <div className="flex justify-between items-center px-4 py-2.5 text-xs">
+          <div className="border border-border bg-card rounded-lg divide-y divide-border/60 text-xs">
+            <div className="flex justify-between items-center px-4 py-2.5">
               <span className="text-muted-foreground">Email</span>
-              <span className="font-medium truncate max-w-[220px]" title={account.email}>
-                {account.email}
+              <span className="font-medium truncate max-w-[220px]" title={account.email}>{account.email}</span>
+            </div>
+            <div className="flex justify-between items-center px-4 py-2.5">
+              <span className="text-muted-foreground">Plan</span>
+              <span className={cn("font-semibold capitalize", planBadge?.cls.match(/text-\S+/)?.[0] ?? "text-card-foreground")}>
+                {snapshot?.planType ?? "—"}
               </span>
             </div>
-            <div className="flex justify-between items-center px-4 py-2.5 text-xs">
-              <span className="text-muted-foreground">Added</span>
-              <span className="font-medium">
-                {account.addedAt ? new Date(account.addedAt).toLocaleString() : "N/A"}
+            <div className="flex justify-between items-center px-4 py-2.5">
+              <span className="text-muted-foreground">Data Source</span>
+              <span className="font-medium flex items-center gap-1">
+                {methodBadge.icon}
+                {methodBadge.label}
               </span>
             </div>
-            <div className="flex justify-between items-center px-4 py-2.5 text-xs">
-              <span className="text-muted-foreground">Last Synced</span>
-              <span className="font-medium">
-                {snapshot?.timestamp
-                  ? new Date(snapshot.timestamp).toLocaleString()
-                  : "Never"}
-              </span>
-            </div>
-            <div className="flex justify-between items-center px-4 py-2.5 text-xs">
+            <div className="flex justify-between items-center px-4 py-2.5">
               <span className="text-muted-foreground">Auth Status</span>
               <span className={cn("font-semibold capitalize", statusBadge.cls.replace(/bg-\S+\s?/, "").replace(/border-\S+\s?/, "").trim())}>
                 {account.status}
               </span>
+            </div>
+            <div className="flex justify-between items-center px-4 py-2.5">
+              <span className="text-muted-foreground">Token Expires</span>
+              <span className={cn("font-medium", tokenIsExpiringSoon ? "text-warning" : "")}>
+                {account.tokenExpiresAt ? formatDateTime(account.tokenExpiresAt) : "N/A"}
+              </span>
+            </div>
+            <div className="flex justify-between items-center px-4 py-2.5">
+              <span className="text-muted-foreground">Last Synced</span>
+              <span className="font-medium">
+                {snapshot?.timestamp ? formatDateTime(snapshot.timestamp) : "Never"}
+              </span>
+            </div>
+            <div className="flex justify-between items-center px-4 py-2.5">
+              <span className="text-muted-foreground">Added</span>
+              <span className="font-medium">{account.addedAt ? formatDateTime(account.addedAt) : "N/A"}</span>
             </div>
           </div>
         </section>

@@ -125,7 +125,6 @@ export const AccountsList: React.FC<AccountsListProps> = ({
                 <Star
                   size={10}
                   className="text-primary fill-primary shrink-0"
-                  title="Active account"
                 />
               )}
             </div>

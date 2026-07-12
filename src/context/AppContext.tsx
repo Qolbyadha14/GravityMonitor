@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { AccountData, AppSettings } from "../types";
+import { AccountData, AppSettings, WakeupStatus } from "../types";
 
 interface LoginState {
   status: "idle" | "pending" | "success" | "error";
@@ -20,6 +20,8 @@ interface AppContextType {
   settings: AppSettings;
   versions: { app: string; cli: string } | null;
   loginState: LoginState;
+  wakeupStatus: WakeupStatus | null;
+  refreshWakeup: () => Promise<void>;
   updateSettings: (newSettings: Partial<AppSettings>) => void;
   refreshAccounts: () => Promise<void>;
   syncAll: () => Promise<void>;
@@ -70,6 +72,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [error, setError] = useState<string | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [versions, setVersions] = useState<{ app: string; cli: string } | null>(null);
+  const [wakeupStatus, setWakeupStatus] = useState<WakeupStatus | null>(null);
   const [loginState, setLoginState] = useState<LoginState>({
     status: "idle",
     logs: [],
@@ -227,6 +230,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  // Fetch wakeup status from filesystem via Rust
+  const refreshWakeup = async () => {
+    try {
+      const data = await invoke<WakeupStatus>("get_wakeup_status");
+      setWakeupStatus(data);
+    } catch (err) {
+      console.error("Failed to get wakeup status:", err);
+    }
+  };
+
   // Start Google OAuth flow via CLI subprocess
   const startLogin = async () => {
     setLoginState({
@@ -271,6 +284,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     refreshAccounts();
     fetchVersions();
+    refreshWakeup();
 
     // Listen to tauri login events
     let unlistenStdout: (() => void) | null = null;
@@ -362,6 +376,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         settings,
         versions,
         loginState,
+        wakeupStatus,
+        refreshWakeup,
         updateSettings,
         refreshAccounts,
         syncAll,

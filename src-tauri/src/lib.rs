@@ -119,6 +119,8 @@ struct AccountData {
     last_used: Option<String>,
     #[serde(rename = "addedAt")]
     added_at: Option<String>,
+    #[serde(rename = "tokenExpiresAt")]
+    token_expires_at: Option<u64>, // unix ms
     #[serde(rename = "cachedCredits")]
     cached_credits: Option<PromptCredits>,
     #[serde(rename = "cachedSnapshot")]
@@ -301,8 +303,10 @@ fn get_accounts_data() -> Result<Vec<AccountData>, AppError> {
             };
 
             // Read tokens.json to calculate status
+            let mut token_expires_at: Option<u64> = None;
             let status = if let Ok(content) = fs::read_to_string(&tokens_path) {
                 if let Ok(tokens) = serde_json::from_str::<TokenInfo>(&content) {
+                    token_expires_at = Some(tokens.expires_at);
                     let now = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .map(|d| d.as_millis() as u64)
@@ -346,6 +350,7 @@ fn get_accounts_data() -> Result<Vec<AccountData>, AppError> {
                 status,
                 last_used,
                 added_at,
+                token_expires_at,
                 cached_credits,
                 cached_snapshot,
             });
@@ -594,6 +599,61 @@ fn get_versions() -> Result<serde_json::Value, AppError> {
     }))
 }
 
+/// Read wakeup config + last N history entries directly from the filesystem.
+/// Returns a serde_json::Value so the frontend gets the raw shape from the CLI
+/// without us needing to maintain a parallel Rust schema for it.
+#[tauri::command]
+fn get_wakeup_status() -> serde_json::Value {
+    let config_dir = match get_config_dir() {
+        Some(d) => d,
+        None => return serde_json::json!({ "configured": false }),
+    };
+    let wakeup_dir = config_dir.join("wakeup");
+
+    // Read wakeup config
+    let config: serde_json::Value = {
+        let path = wakeup_dir.join("config.json");
+        if path.exists() {
+            fs::read_to_string(&path)
+                .ok()
+                .and_then(|s| serde_json::from_str(&s).ok())
+                .unwrap_or(serde_json::Value::Null)
+        } else {
+            serde_json::Value::Null
+        }
+    };
+
+    // Read last 5 history entries
+    let history: serde_json::Value = {
+        let path = wakeup_dir.join("history.json");
+        if path.exists() {
+            fs::read_to_string(&path)
+                .ok()
+                .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+                .map(|v| {
+                    // Slice first 5 entries
+                    if let Some(arr) = v.as_array() {
+                        serde_json::Value::Array(arr.iter().take(5).cloned().collect())
+                    } else {
+                        v
+                    }
+                })
+                .unwrap_or(serde_json::json!([]))
+        } else {
+            serde_json::json!([])
+        }
+    };
+
+    let configured = !config.is_null()
+        && config.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
+
+    serde_json::json!({
+        "configured": configured,
+        "config": config,
+        "history": history
+    })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -612,7 +672,8 @@ pub fn run() {
             cancel_login_flow,
             open_session_folder,
             clear_all_sessions,
-            get_versions
+            get_versions,
+            get_wakeup_status
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
