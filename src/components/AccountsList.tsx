@@ -1,242 +1,170 @@
 import React from "react";
 import { AccountData } from "../types";
-import { Star, Shield, ShieldAlert, AlertCircle, RefreshCw, Trash2, Power, Database, Sparkles } from "lucide-react";
+import { Star, Shield, ShieldAlert, AlertCircle, Sparkles } from "lucide-react";
 import { cn } from "../utils/cn";
 
 interface AccountsListProps {
   accounts: AccountData[];
-  onSync: (email: string) => Promise<void>;
-  onSwitch: (email: string) => Promise<void>;
-  onRemove: (email: string) => Promise<void>;
-  syncing: boolean;
+  selectedEmail: string | null;
+  onSelect: (email: string) => void;
 }
 
 export const AccountsList: React.FC<AccountsListProps> = ({
   accounts,
-  onSync,
-  onSwitch,
-  onRemove,
-  syncing,
+  selectedEmail,
+  onSelect,
 }) => {
+  const getStatusDot = (status: string) => {
+    switch (status) {
+      case "valid":
+        return "bg-success";
+      case "expired":
+        return "bg-warning";
+      default:
+        return "bg-danger";
+    }
+  };
+
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "valid":
-        return <Shield className="text-success" size={13} />;
+        return <Shield className="text-success" size={11} />;
       case "expired":
-        return <ShieldAlert className="text-warning" size={13} />;
+        return <ShieldAlert className="text-warning" size={11} />;
       default:
-        return <AlertCircle className="text-danger" size={13} />;
+        return <AlertCircle className="text-danger" size={11} />;
     }
   };
 
-  const getStatusBadgeClass = (status: string) => {
-    switch (status) {
-      case "valid":
-        return "bg-success/15 text-success border-success/20";
-      case "expired":
-        return "bg-warning/15 text-warning border-warning/20";
-      default:
-        return "bg-danger/15 text-danger border-danger/20";
+  const getMinQuotaPct = (account: AccountData): number | null => {
+    const models = account.cachedSnapshot?.models?.filter((m) => !m.isAutocompleteOnly) ?? [];
+    const pcts = models
+      .filter((m) => m.remainingPercentage !== undefined && m.remainingPercentage !== null)
+      .map((m) => m.remainingPercentage as number);
+    if (pcts.length === 0) {
+      if (models.some((m) => m.isExhausted)) return 0;
+      return null;
     }
+    return Math.min(...pcts);
   };
 
-  const getQuotaColor = (pct: number | undefined | null, isExhausted: boolean) => {
-    if (isExhausted || pct === 0) return "bg-danger";
-    if (pct === undefined || pct === null) return "bg-muted";
+  const getQuotaBarColor = (pct: number | null): string => {
+    if (pct === null) return "bg-muted-foreground/30";
+    if (pct === 0) return "bg-danger";
     if (pct >= 0.75) return "bg-success";
     if (pct >= 0.5) return "bg-warning";
-    if (pct >= 0.25) return "bg-warning/80"; // Warning Orange
+    if (pct >= 0.25) return "bg-warning/80";
     return "bg-danger";
   };
 
-  const getQuotaTextColor = (pct: number | undefined | null, isExhausted: boolean) => {
-    if (isExhausted || pct === 0) return "text-danger";
-    if (pct === undefined || pct === null) return "text-muted-foreground";
+  const getQuotaLabel = (pct: number | null): string => {
+    if (pct === null) return "No data";
+    if (pct === 0) return "Exhausted";
+    return `${Math.round(pct * 100)}% left`;
+  };
+
+  const getQuotaLabelColor = (pct: number | null): string => {
+    if (pct === null) return "text-muted-foreground";
+    if (pct === 0) return "text-danger";
     if (pct >= 0.75) return "text-success";
     if (pct >= 0.5) return "text-warning";
     if (pct >= 0.25) return "text-warning";
     return "text-danger";
   };
 
-  const formatTime = (ms: number | undefined | null) => {
-    if (ms === undefined || ms === null || ms <= 0) return "N/A";
-    const hours = Math.floor(ms / (1000 * 60 * 60));
-    const minutes = Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60));
-    if (hours > 0) {
-      return `${hours}h ${minutes}m`;
-    }
-    return `${minutes}m`;
-  };
-
   if (accounts.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center border border-dashed border-border py-12 px-4 text-center rounded-lg bg-card text-card-foreground">
-        <AlertCircle className="text-muted-foreground mb-3" size={32} />
-        <h3 className="text-sm font-semibold">No Accounts Connected</h3>
-        <p className="text-xs text-muted-foreground mt-1 max-w-xs leading-relaxed">
-          Monitor your Google Antigravity quotas by connecting a Google account first.
-        </p>
+      <div className="flex flex-col items-center justify-center flex-1 gap-3 text-center px-4 py-10">
+        <AlertCircle className="text-muted-foreground/50" size={28} />
+        <div>
+          <p className="text-xs font-semibold text-card-foreground">No Accounts</p>
+          <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">
+            Add a Google account to start monitoring quotas.
+          </p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div className="flex flex-col gap-1 px-2 pb-2">
       {accounts.map((account) => {
-        const snapshot = account.cachedSnapshot;
-        const credits = account.cachedCredits;
-        
-        // Filter out autocomplete models so card display is neat
-        const models = snapshot?.models
-          ? snapshot.models.filter((m) => !m.isAutocompleteOnly)
-          : [];
+        const isSelected = account.email === selectedEmail;
+        const minQuota = getMinQuotaPct(account);
+        const modelCount = account.cachedSnapshot?.models?.filter((m) => !m.isAutocompleteOnly).length ?? 0;
 
         return (
-          <div
+          <button
             key={account.email}
+            onClick={() => onSelect(account.email)}
             className={cn(
-              "border border-border bg-card p-5 rounded-lg flex flex-col justify-between shadow-xs transition duration-150 relative",
-              account.isActive ? "border-primary/45 ring-1 ring-primary/20" : "hover:border-muted-foreground/30"
+              "w-full text-left px-3 py-2.5 rounded-md transition-all duration-150 cursor-pointer group",
+              isSelected
+                ? "bg-primary/10 border border-primary/25 shadow-xs"
+                : "hover:bg-secondary/70 border border-transparent"
             )}
           >
-            {/* Header */}
-            <div className="space-y-4">
-              <div className="flex items-start justify-between gap-2 border-b border-border/50 pb-3">
-                <div className="space-y-1 truncate pr-2">
-                  <div className="flex items-center gap-1.5">
-                    <h3 className="font-semibold text-sm truncate" title={account.email}>
-                      {account.email}
-                    </h3>
-                    {account.isActive && (
-                      <span className="flex items-center gap-0.5 text-[9px] px-1.5 py-0.2 border border-primary/20 bg-primary/10 text-primary rounded-md font-semibold select-none shrink-0">
-                        <Star size={8} className="fill-current" /> ACTIVE
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-[10px] text-muted-foreground capitalize">
-                    {snapshot?.planType ? `${snapshot.planType} Plan` : "No Quota Cached"}
-                  </div>
+            {/* Top row: email + status */}
+            <div className="flex items-center gap-2 min-w-0">
+              {/* Status dot */}
+              <span
+                className={cn("h-1.5 w-1.5 rounded-full shrink-0", getStatusDot(account.status))}
+              />
+              {/* Email */}
+              <span
+                className={cn(
+                  "text-xs font-medium truncate flex-1 min-w-0",
+                  isSelected ? "text-primary" : "text-card-foreground"
+                )}
+                title={account.email}
+              >
+                {account.email}
+              </span>
+              {/* Active badge */}
+              {account.isActive && (
+                <Star
+                  size={10}
+                  className="text-primary fill-primary shrink-0"
+                  title="Active account"
+                />
+              )}
+            </div>
+
+            {/* Bottom row: plan + quota mini bar */}
+            <div className="mt-2 space-y-1">
+              {/* Mini quota bar */}
+              <div className="flex items-center gap-2">
+                <div className="flex-1 h-1 rounded-full bg-secondary overflow-hidden">
+                  <div
+                    className={cn("h-full rounded-full transition-all duration-300", getQuotaBarColor(minQuota))}
+                    style={{ width: minQuota !== null ? `${minQuota * 100}%` : "0%" }}
+                  />
                 </div>
-                <span className={cn("text-[9px] px-2 py-0.5 border rounded-full font-medium tracking-wider shrink-0 uppercase flex items-center gap-1", getStatusBadgeClass(account.status))}>
-                  {getStatusIcon(account.status)}
-                  {account.status}
+                <span className={cn("text-[10px] font-semibold shrink-0 font-mono", getQuotaLabelColor(minQuota))}>
+                  {getQuotaLabel(minQuota)}
                 </span>
               </div>
 
-              {/* Prompt Credits */}
-              {credits && (
-                <div className="space-y-1.5 bg-secondary/35 border border-border/40 p-3 rounded-md">
-                  <div className="flex justify-between text-xs items-center">
-                    <span className="text-muted-foreground font-semibold flex items-center gap-1">
-                      <Database size={12} />
-                      Credits
-                    </span>
-                    <span className="font-mono font-bold text-card-foreground">
-                      {credits.available} / {credits.monthly}
-                    </span>
-                  </div>
-                  <div className="w-full bg-secondary h-1.5 rounded-full overflow-hidden">
-                    <div
-                      className="bg-primary h-full rounded-full transition-all duration-300"
-                      style={{ width: `${credits.remainingPercentage * 100}%` }}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* Models Quota */}
-              <div className="space-y-2 pt-1">
-                <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
-                  <Sparkles size={11} />
-                  <span>Agent Quotas</span>
-                </div>
-
-                {models.length > 0 ? (
-                  <div className="space-y-2.5">
-                    {models.map((model) => {
-                      const pct = model.remainingPercentage;
-                      const isExh = model.isExhausted;
-                      const resets = model.timeUntilResetMs;
-
-                      return (
-                        <div key={model.modelId} className="text-xs space-y-1">
-                          <div className="flex justify-between items-center gap-2">
-                            <span className="truncate max-w-[200px] font-medium" title={model.label}>
-                              {model.label}
-                            </span>
-                            <span className={cn("font-mono font-bold shrink-0", getQuotaTextColor(pct, isExh))}>
-                              {isExh ? "EXHAUSTED" : pct !== undefined && pct !== null ? `${Math.round(pct * 100)}%` : "N/A"}
-                            </span>
-                          </div>
-                          
-                          {pct !== undefined && pct !== null && (
-                            <div className="w-full bg-secondary h-1 rounded-full overflow-hidden">
-                              <div
-                                className={cn("h-full rounded-full transition-all duration-300", getQuotaColor(pct, isExh))}
-                                style={{ width: `${pct * 100}%` }}
-                              />
-                            </div>
-                          )}
-
-                          {resets !== undefined && resets !== null && resets > 0 && (
-                            <div className="text-[10px] text-warning font-medium flex justify-end -mt-0.5">
-                              Resets: {formatTime(resets)}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="text-center border border-dashed border-border/80 py-6 rounded-md text-xs text-muted-foreground bg-secondary/15">
-                    No active agent quotas cached. Click Sync.
-                  </div>
+              {/* Sub info row */}
+              <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                {getStatusIcon(account.status)}
+                <span className="capitalize">{account.status}</span>
+                {account.cachedSnapshot?.planType && (
+                  <>
+                    <span className="opacity-40">·</span>
+                    <span className="capitalize">{account.cachedSnapshot.planType}</span>
+                  </>
+                )}
+                {modelCount > 0 && (
+                  <>
+                    <span className="opacity-40">·</span>
+                    <Sparkles size={9} className="shrink-0" />
+                    <span>{modelCount} models</span>
+                  </>
                 )}
               </div>
             </div>
-
-            {/* Footer */}
-            <div className="border-t border-border/50 pt-3 flex items-center justify-between mt-5">
-              <div className="text-[10px] text-muted-foreground font-medium">
-                Sync: {snapshot?.timestamp ? new Date(snapshot.timestamp).toLocaleTimeString() : "Never"}
-              </div>
-              <div className="flex items-center gap-1.5">
-                {/* Remove button */}
-                <button
-                  onClick={() => {
-                    if (confirm(`Remove account session for ${account.email}?`)) {
-                      onRemove(account.email);
-                    }
-                  }}
-                  className="inline-flex items-center justify-center p-1.5 border border-border hover:bg-destructive/10 hover:border-destructive/20 text-muted-foreground hover:text-danger rounded-md transition cursor-pointer"
-                  title="Remove Session"
-                >
-                  <Trash2 size={13} />
-                </button>
-                {/* Sync button */}
-                <button
-                  onClick={() => onSync(account.email)}
-                  disabled={syncing}
-                  className="inline-flex items-center gap-1 px-2.5 py-1.5 border border-border hover:bg-secondary text-card-foreground hover:text-card-foreground rounded-md text-xs font-semibold transition cursor-pointer disabled:opacity-40"
-                  title="Sync Quota"
-                >
-                  <RefreshCw size={12} className={cn(syncing && "animate-spin")} />
-                  Sync
-                </button>
-                {/* Make Active button */}
-                {!account.isActive && (
-                  <button
-                    onClick={() => onSwitch(account.email)}
-                    className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-primary text-primary-foreground hover:bg-primary/95 rounded-md text-xs font-semibold transition cursor-pointer"
-                    title="Make Active"
-                  >
-                    <Power size={12} />
-                    Active
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
+          </button>
         );
       })}
     </div>

@@ -15,6 +15,7 @@ interface AppContextType {
   loading: boolean;
   syncing: boolean;
   error: string | null;
+  clearError: () => void;
   lastRefresh: Date | null;
   settings: AppSettings;
   versions: { app: string; cli: string } | null;
@@ -102,6 +103,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const updateSettings = (newSettings: Partial<AppSettings>) => {
     setSettings((prev) => ({ ...prev, ...newSettings }));
   };
+
+  const clearError = () => setError(null);
 
   // Fetch accounts list (direct directory and file read)
   const refreshAccounts = async () => {
@@ -354,6 +357,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         loading,
         syncing,
         error,
+        clearError,
         lastRefresh,
         settings,
         versions,

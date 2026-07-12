@@ -2,12 +2,12 @@ import { useState } from "react";
 import { AppProvider, useApp } from "./context/AppContext";
 import { Dashboard } from "./components/Dashboard";
 import { Settings } from "./components/Settings";
-import { Activity, Settings as SettingsIcon, RefreshCw, AlertCircle } from "lucide-react";
+import { Activity, Settings as SettingsIcon, RefreshCw, AlertCircle, X } from "lucide-react";
 import { cn } from "./utils/cn";
 
 function AppContent() {
   const [activeTab, setActiveTab] = useState<"dashboard" | "settings">("dashboard");
-  const { activeAccount, error, syncing } = useApp();
+  const { activeAccount, error, clearError, syncing } = useApp();
 
   return (
     <div className="flex h-screen bg-background text-card-foreground overflow-hidden font-sans">
@@ -89,11 +89,23 @@ function AppContent() {
 
         {/* Error banner */}
         {error && (
-          <div className="bg-danger/10 border-b border-danger/20 text-danger px-6 py-2.5 text-xs font-medium flex items-center justify-between select-none">
-            <div className="flex items-center gap-2">
-              <AlertCircle size={14} />
-              <span className="font-semibold truncate">CLI Error: {error}</span>
+          <div className="bg-danger/10 border-b border-danger/20 text-danger px-4 py-2 text-xs font-medium flex items-center justify-between select-none gap-3">
+            <div className="flex items-center gap-2 min-w-0">
+              <AlertCircle size={13} className="shrink-0" />
+              <span
+                className="font-semibold truncate"
+                title={error}
+              >
+                {error.length > 120 ? error.slice(0, 120) + "…" : error}
+              </span>
             </div>
+            <button
+              onClick={clearError}
+              className="shrink-0 p-0.5 rounded hover:bg-danger/20 transition cursor-pointer"
+              title="Dismiss"
+            >
+              <X size={13} />
+            </button>
           </div>
         )}
 

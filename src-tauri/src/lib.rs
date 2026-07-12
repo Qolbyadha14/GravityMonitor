@@ -153,6 +153,56 @@ fn get_config_dir() -> Option<PathBuf> {
     }
 }
 
+/// Extracts the first valid JSON object `{...}` or array `[...]` from a
+/// potentially-noisy string (e.g. output that contains npx install logs or
+/// CLI warning lines printed before the actual JSON payload).
+fn extract_json(raw: &str) -> Option<&str> {
+    // Find the first '{' or '[' that starts a JSON value
+    let start = raw.find(|c| c == '{' || c == '[')?;
+    let slice = &raw[start..];
+
+    // Walk forward keeping a depth counter to find the matching close bracket
+    let open = slice.chars().next()?;
+    let close = if open == '{' { '}' } else { ']' };
+    let mut depth: i64 = 0;
+    let mut in_string = false;
+    let mut escape_next = false;
+    let mut end = 0usize;
+
+    for (i, ch) in slice.char_indices() {
+        if escape_next {
+            escape_next = false;
+            continue;
+        }
+        if ch == '\\' && in_string {
+            escape_next = true;
+            continue;
+        }
+        if ch == '"' {
+            in_string = !in_string;
+            continue;
+        }
+        if in_string {
+            continue;
+        }
+        if ch == open {
+            depth += 1;
+        } else if ch == close {
+            depth -= 1;
+            if depth == 0 {
+                end = i + ch.len_utf8();
+                break;
+            }
+        }
+    }
+
+    if depth == 0 && end > 0 {
+        Some(&slice[..end])
+    } else {
+        None
+    }
+}
+
 // Runs a CLI command via dynamic shell (inherits node paths, brew, nvm paths)
 fn run_cli_command(args_str: &str) -> Result<String, AppError> {
     let cmd = format!("npx antigravity-usage {}", args_str);
@@ -324,9 +374,13 @@ async fn sync_all_accounts() -> Result<serde_json::Value, AppError> {
 
     match output {
         Ok(stdout) => {
-            let json: serde_json::Value = serde_json::from_str(&stdout)
+            // Extract only the JSON portion — CLI may print log/warning lines before it
+            let json_str = extract_json(&stdout).ok_or_else(|| AppError::JsonParseError {
+                detail: format!("No JSON found in CLI output.\nRaw: {}", &stdout[..stdout.len().min(500)]),
+            })?;
+            let json: serde_json::Value = serde_json::from_str(json_str)
                 .map_err(|e| AppError::JsonParseError {
-                    detail: format!("Failed to parse JSON output: {}\nRaw: {}", e, stdout),
+                    detail: format!("Failed to parse extracted JSON: {}\nExtracted: {}", e, &json_str[..json_str.len().min(500)]),
                 })?;
             Ok(json)
         }
@@ -334,6 +388,15 @@ async fn sync_all_accounts() -> Result<serde_json::Value, AppError> {
             match &e {
                 AppError::SubprocessFailed { stdout, .. } if stdout.contains("No accounts found") => {
                     Ok(serde_json::json!([]))
+                }
+                // Also try to recover JSON from failed-exit stdout before giving up
+                AppError::SubprocessFailed { stdout, .. } => {
+                    if let Some(json_str) = extract_json(stdout) {
+                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(json_str) {
+                            return Ok(json);
+                        }
+                    }
+                    Err(e)
                 }
                 _ => Err(e),
             }
@@ -349,13 +412,27 @@ async fn sync_account(email: String) -> Result<serde_json::Value, AppError> {
 
     match output {
         Ok(stdout) => {
-            let json: serde_json::Value = serde_json::from_str(&stdout)
+            // Extract only the JSON portion — CLI may print log/warning lines before it
+            let json_str = extract_json(&stdout).ok_or_else(|| AppError::JsonParseError {
+                detail: format!("No JSON found in CLI output.\nRaw: {}", &stdout[..stdout.len().min(500)]),
+            })?;
+            let json: serde_json::Value = serde_json::from_str(json_str)
                 .map_err(|e| AppError::JsonParseError {
-                    detail: format!("Failed to parse JSON output: {}\nRaw: {}", e, stdout),
+                    detail: format!("Failed to parse extracted JSON: {}\nExtracted: {}", e, &json_str[..json_str.len().min(500)]),
                 })?;
             Ok(json)
         }
-        Err(e) => Err(e),
+        Err(e) => {
+            // Also try to recover JSON from failed-exit stdout before giving up
+            if let AppError::SubprocessFailed { stdout, .. } = &e {
+                if let Some(json_str) = extract_json(stdout) {
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(json_str) {
+                        return Ok(json);
+                    }
+                }
+            }
+            Err(e)
+        }
     }
 }
 

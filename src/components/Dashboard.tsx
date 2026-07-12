@@ -1,8 +1,9 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useApp } from "../context/AppContext";
 import { AccountsList } from "./AccountsList";
+import { AccountDetail } from "./AccountDetail";
 import { AddAccountModal } from "./AddAccountModal";
-import { RefreshCw, Plus, Clock } from "lucide-react";
+import { RefreshCw, Plus, Clock, Activity, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { cn } from "../utils/cn";
 
 export const Dashboard: React.FC = () => {
@@ -19,68 +20,108 @@ export const Dashboard: React.FC = () => {
   } = useApp();
 
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [selectedEmail, setSelectedEmail] = useState<string | null>(null);
 
-  // Helper to calculate min remaining quota for summaries
-  const getMinQuota = (acc: any) => {
-    const snap = acc.cachedSnapshot;
-    if (!snap || !snap.models || snap.models.length === 0) return null;
-    const chatModels = snap.models.filter((m: any) => !m.isAutocompleteOnly);
-    const modelsToUse = chatModels.length > 0 ? chatModels : snap.models;
-    const percentages = modelsToUse
-      .filter((m: any) => m.remainingPercentage !== undefined && m.remainingPercentage !== null)
-      .map((m: any) => m.remainingPercentage);
-    if (percentages.length > 0) return Math.min(...percentages);
-    if (modelsToUse.some((m: any) => m.isExhausted)) return 0;
-    return null;
+  // Auto-select the active account on load, or first account
+  useEffect(() => {
+    if (accounts.length === 0) {
+      setSelectedEmail(null);
+      return;
+    }
+    // If nothing selected yet, pick the active account or first
+    setSelectedEmail((prev) => {
+      if (prev && accounts.find((a) => a.email === prev)) return prev;
+      const active = accounts.find((a) => a.isActive);
+      return active?.email ?? accounts[0].email;
+    });
+  }, [accounts]);
+
+  const handleRemove = async (email: string) => {
+    await removeAcc(email);
+    // If removed account was selected, pick another
+    setSelectedEmail((prev) => {
+      if (prev !== email) return prev;
+      const remaining = accounts.filter((a) => a.email !== email);
+      if (remaining.length === 0) return null;
+      const active = remaining.find((a) => a.isActive);
+      return active?.email ?? remaining[0].email;
+    });
   };
 
-  // Summaries calculation
+  const selectedAccount = accounts.find((a) => a.email === selectedEmail) ?? null;
+
+  // Summary stats
   const totalAccounts = accounts.length;
-  let healthyAccounts = 0;
-  let warningAccounts = 0;
-  let exhaustedAccounts = 0;
+  let healthyCount = 0;
+  let warningCount = 0;
+  let exhaustedCount = 0;
 
   accounts.forEach((acc) => {
-    const minQuota = getMinQuota(acc);
-    if (acc.status === "invalid") {
-      exhaustedAccounts++;
-    } else if (acc.status === "expired") {
-      warningAccounts++;
+    const snap = acc.cachedSnapshot;
+    const models = snap?.models?.filter((m) => !m.isAutocompleteOnly) ?? [];
+    const pcts = models
+      .filter((m) => m.remainingPercentage !== undefined && m.remainingPercentage !== null)
+      .map((m) => m.remainingPercentage as number);
+    const minPct = pcts.length > 0 ? Math.min(...pcts) : null;
+    const hasExhausted = models.some((m) => m.isExhausted);
+
+    if (acc.status === "invalid" || hasExhausted || minPct === 0) {
+      exhaustedCount++;
+    } else if (acc.status === "expired" || (minPct !== null && minPct < 0.25)) {
+      warningCount++;
     } else {
-      // valid status
-      if (minQuota === null) {
-        healthyAccounts++;
-      } else if (minQuota === 0) {
-        exhaustedAccounts++;
-      } else if (minQuota < 0.25) {
-        warningAccounts++;
-      } else {
-        healthyAccounts++;
-      }
+      healthyCount++;
     }
   });
 
   return (
-    <div className="space-y-6">
-      {/* Header Panel */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-border pb-4 gap-4">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight text-card-foreground">Quota Dashboard</h1>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Real-time developer-centric monitoring of Google Antigravity quota snapshots.
-          </p>
+    <div className="flex flex-col h-full overflow-hidden">
+      {/* ── Top bar ──────────────────────────────────────────────────────── */}
+      <div className="shrink-0 flex items-center justify-between border-b border-border px-5 py-3 bg-card/50 gap-4">
+        {/* Left: stats pills */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs font-bold text-card-foreground mr-1 flex items-center gap-1.5">
+            <Activity size={13} className="text-muted-foreground" />
+            {totalAccounts} account{totalAccounts !== 1 ? "s" : ""}
+          </span>
+
+          {healthyCount > 0 && (
+            <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-success/10 text-success border border-success/20">
+              <CheckCircle2 size={10} />
+              {healthyCount} healthy
+            </span>
+          )}
+          {warningCount > 0 && (
+            <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-warning/10 text-warning border border-warning/20">
+              <AlertTriangle size={10} />
+              {warningCount} warning
+            </span>
+          )}
+          {exhaustedCount > 0 && (
+            <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-danger/10 text-danger border border-danger/20">
+              <AlertTriangle size={10} />
+              {exhaustedCount} exhausted
+            </span>
+          )}
+
+          {lastRefresh && (
+            <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground ml-1">
+              <Clock size={10} />
+              {lastRefresh.toLocaleTimeString()}
+            </span>
+          )}
         </div>
 
-        {/* Global Controls */}
-        <div className="flex items-center gap-2">
-          {/* Auto Refresh Toggle */}
-          <div className="flex items-center border border-border rounded-md px-2.5 py-1.5 bg-card text-xs text-card-foreground gap-1.5 shadow-xs">
-            <Clock size={14} className="text-muted-foreground" />
-            <span className="font-medium">Auto-Refresh:</span>
+        {/* Right: controls */}
+        <div className="flex items-center gap-2 shrink-0">
+          {/* Auto-Refresh */}
+          <div className="flex items-center border border-border rounded-md px-2.5 py-1 bg-card text-xs text-card-foreground gap-1.5 shadow-xs">
+            <Clock size={12} className="text-muted-foreground" />
+            <span className="font-medium text-muted-foreground">Auto:</span>
             <select
               value={settings.autoRefreshInterval}
               onChange={(e) => updateSettings({ autoRefreshInterval: e.target.value as any })}
-              className="bg-transparent font-medium border-0 focus:outline-hidden p-0 text-xs cursor-pointer"
+              className="bg-transparent font-semibold border-0 focus:outline-hidden p-0 text-xs cursor-pointer text-card-foreground"
             >
               <option value="manual">Manual</option>
               <option value="30s">30s</option>
@@ -89,75 +130,56 @@ export const Dashboard: React.FC = () => {
             </select>
           </div>
 
-          {/* Sync All Button */}
           <button
             onClick={syncAll}
             disabled={syncing}
-            className="flex items-center justify-center gap-2 px-3 py-1.5 border border-border hover:bg-secondary rounded-md text-xs font-semibold cursor-pointer transition disabled:opacity-50 text-card-foreground bg-card"
+            className="flex items-center gap-1.5 px-3 py-1.5 border border-border hover:bg-secondary rounded-md text-xs font-semibold cursor-pointer transition disabled:opacity-50 text-card-foreground bg-card"
           >
-            <RefreshCw size={14} className={cn(syncing && "animate-spin")} />
+            <RefreshCw size={12} className={cn(syncing && "animate-spin")} />
             Sync All
           </button>
 
-          {/* Add Account Button */}
           <button
             onClick={() => setIsLoginModalOpen(true)}
-            className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground hover:bg-primary/95 rounded-md text-xs font-semibold cursor-pointer transition shadow-xs"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground hover:bg-primary/90 rounded-md text-xs font-semibold cursor-pointer transition shadow-xs"
           >
-            <Plus size={14} />
+            <Plus size={13} />
             Add Account
           </button>
         </div>
       </div>
 
-      {/* Summary Grid Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Total Accounts */}
-        <div className="border border-border bg-card p-4 rounded-lg flex flex-col justify-between shadow-xs transition duration-150 hover:border-muted-foreground/30">
-          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Total Accounts</span>
-          <div className="text-2xl font-bold font-mono text-card-foreground mt-1.5">{totalAccounts}</div>
-        </div>
+      {/* ── Split Panel ──────────────────────────────────────────────────── */}
+      <div className="flex-1 flex min-h-0 overflow-hidden">
+        {/* Left: account list sidebar */}
+        <aside className="w-64 shrink-0 border-r border-border bg-card flex flex-col overflow-hidden">
+          <div className="px-3 pt-3 pb-1">
+            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest px-1">
+              Connected Accounts
+            </p>
+          </div>
+          <div className="flex-1 overflow-y-auto pt-1">
+            <AccountsList
+              accounts={accounts}
+              selectedEmail={selectedEmail}
+              onSelect={setSelectedEmail}
+            />
+          </div>
+        </aside>
 
-        {/* Healthy Accounts */}
-        <div className="border border-border border-l-[3px] border-l-success bg-card p-4 rounded-lg flex flex-col justify-between shadow-xs transition duration-150 hover:border-border/80">
-          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Healthy</span>
-          <div className="text-2xl font-bold font-mono text-success mt-1.5">{healthyAccounts}</div>
-        </div>
-
-        {/* Warning Accounts */}
-        <div className="border border-border border-l-[3px] border-l-warning bg-card p-4 rounded-lg flex flex-col justify-between shadow-xs transition duration-150 hover:border-border/80">
-          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Warning</span>
-          <div className="text-2xl font-bold font-mono text-warning mt-1.5">{warningAccounts}</div>
-        </div>
-
-        {/* Exhausted Accounts */}
-        <div className="border border-border border-l-[3px] border-l-danger bg-card p-4 rounded-lg flex flex-col justify-between shadow-xs transition duration-150 hover:border-border/80">
-          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Exhausted</span>
-          <div className="text-2xl font-bold font-mono text-danger mt-1.5">{exhaustedAccounts}</div>
+        {/* Right: account detail panel */}
+        <div className="flex-1 min-w-0 flex flex-col overflow-hidden bg-background">
+          <AccountDetail
+            account={selectedAccount}
+            syncing={syncing}
+            onSync={syncSingle}
+            onSwitch={switchActive}
+            onRemove={handleRemove}
+          />
         </div>
       </div>
 
-      {/* Sync Status Banner */}
-      {lastRefresh && (
-        <div className="text-xs text-muted-foreground bg-secondary/35 border border-border px-3 py-2 rounded-md w-fit flex items-center gap-1.5">
-          <Clock size={12} />
-          <span>Last Sync: {lastRefresh.toLocaleTimeString()}</span>
-        </div>
-      )}
-
-      {/* Accounts List Cards Grid */}
-      <div className="space-y-3">
-        <h2 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Connected Accounts</h2>
-        <AccountsList
-          accounts={accounts}
-          onSync={syncSingle}
-          onSwitch={switchActive}
-          onRemove={removeAcc}
-          syncing={syncing}
-        />
-      </div>
-
-      {/* Login modal dialog */}
+      {/* Login modal */}
       <AddAccountModal isOpen={isLoginModalOpen} onClose={() => setIsLoginModalOpen(false)} />
     </div>
   );
