@@ -1,7 +1,8 @@
-import React from "react";
+import React, { useState } from "react";
 import { AccountData } from "../types";
 import { X, RefreshCw, Star, Sparkles, Database } from "lucide-react";
 import { cn } from "../utils/cn";
+import { ConfirmModal } from "./ConfirmModal";
 
 interface AccountDetailDrawerProps {
   account: AccountData | null;
@@ -22,6 +23,8 @@ export const AccountDetailDrawer: React.FC<AccountDetailDrawerProps> = ({
   onRemove,
   syncing,
 }) => {
+  const [showConfirmRemove, setShowConfirmRemove] = useState(false);
+
   if (!isOpen || !account) return null;
 
   const snapshot = account.cachedSnapshot;
@@ -234,18 +237,26 @@ export const AccountDetailDrawer: React.FC<AccountDetailDrawerProps> = ({
             </button>
           </div>
           <button
-            onClick={() => {
-              if (confirm(`Are you sure you want to remove account session for ${account.email}?`)) {
-                onRemove(account.email);
-                onClose();
-              }
-            }}
+            onClick={() => setShowConfirmRemove(true)}
             className="flex items-center justify-center gap-2 px-4 py-2 bg-destructive/10 border border-destructive/20 text-destructive hover:bg-destructive/15 rounded-md text-sm font-medium transition cursor-pointer mt-2"
           >
             Remove Account Session
           </button>
         </div>
       </div>
+
+      <ConfirmModal
+        isOpen={showConfirmRemove}
+        title="Remove Account Session"
+        message={`Are you sure you want to remove the account session for ${account.email}?\n\nThis will remove local token files for this account.`}
+        confirmText="Remove Account"
+        isDanger={true}
+        onConfirm={() => {
+          onRemove(account.email);
+          onClose();
+        }}
+        onClose={() => setShowConfirmRemove(false)}
+      />
     </div>
   );
 };

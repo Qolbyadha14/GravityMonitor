@@ -26,6 +26,8 @@ import {
 } from "lucide-react";
 import { cn } from "../utils/cn";
 
+import { ConfirmModal } from "./ConfirmModal";
+
 interface AccountDetailProps {
   account: AccountData | null;
   syncing: boolean;
@@ -44,6 +46,7 @@ export const AccountDetail: React.FC<AccountDetailProps> = ({
   const { wakeupStatus, refreshWakeup } = useApp();
   const [showAutocomplete, setShowAutocomplete] = useState(false);
   const [syncingWakeup, setSyncingWakeup] = useState(false);
+  const [showConfirmRemove, setShowConfirmRemove] = useState(false);
 
   // ── helpers ──────────────────────────────────────────────────────────────
   const getStatusBadge = (status: string) => {
@@ -219,7 +222,7 @@ export const AccountDetail: React.FC<AccountDetailProps> = ({
           {/* Right: action buttons */}
           <div className="flex items-center gap-1.5 shrink-0">
             <button
-              onClick={() => { if (confirm(`Remove account session for ${account.email}?`)) onRemove(account.email); }}
+              onClick={() => setShowConfirmRemove(true)}
               className="inline-flex items-center justify-center p-1.5 border border-border hover:bg-destructive/10 hover:border-destructive/20 text-muted-foreground hover:text-danger rounded-md transition cursor-pointer"
               title="Remove session"
             >
@@ -626,6 +629,16 @@ export const AccountDetail: React.FC<AccountDetailProps> = ({
           </div>
         </section>
       </div>
+
+      <ConfirmModal
+        isOpen={showConfirmRemove}
+        title="Remove Account Session"
+        message={`Are you sure you want to remove the account session for ${account.email}?\n\nThis will remove local token files for this account.`}
+        confirmText="Remove Account"
+        isDanger={true}
+        onConfirm={() => onRemove(account.email)}
+        onClose={() => setShowConfirmRemove(false)}
+      />
     </div>
   );
 };

@@ -1,7 +1,8 @@
-import React from "react";
+import React, { useState } from "react";
 import { useApp } from "../context/AppContext";
 import { FolderOpen, RefreshCcw, Trash2, Sun, Moon, Monitor } from "lucide-react";
 import { cn } from "../utils/cn";
+import { ConfirmModal } from "./ConfirmModal";
 
 export const Settings: React.FC = () => {
   const {
@@ -14,15 +15,7 @@ export const Settings: React.FC = () => {
     versions,
   } = useApp();
 
-  const handleClearSessions = async () => {
-    const doubleConfirm = confirm(
-      "CAUTION: This will delete all local accounts, sessions, and cached data from this system. \n\nAre you absolutely sure you want to proceed?"
-    );
-    if (doubleConfirm) {
-      await clearAll();
-      alert("All sessions have been cleared.");
-    }
-  };
+  const [showConfirmClear, setShowConfirmClear] = useState(false);
 
   return (
     <div className="space-y-6">
@@ -123,7 +116,7 @@ export const Settings: React.FC = () => {
                 </div>
               </div>
               <button
-                onClick={handleClearSessions}
+                onClick={() => setShowConfirmClear(true)}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-destructive/10 border border-destructive/20 hover:bg-destructive/15 text-danger text-xs font-semibold rounded-md transition cursor-pointer"
               >
                 <Trash2 size={14} />
@@ -162,6 +155,16 @@ export const Settings: React.FC = () => {
           </div>
         </div>
       </div>
+
+      <ConfirmModal
+        isOpen={showConfirmClear}
+        title="Clear All Sessions"
+        message="CAUTION: This will delete all local accounts, sessions, and cached data from this system. Are you absolutely sure you want to proceed?"
+        confirmText="Clear All Sessions"
+        isDanger={true}
+        onConfirm={clearAll}
+        onClose={() => setShowConfirmClear(false)}
+      />
     </div>
   );
 };

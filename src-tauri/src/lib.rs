@@ -461,7 +461,31 @@ fn switch_account(email: String) -> Result<String, AppError> {
 
 #[tauri::command]
 fn remove_account(email: String) -> Result<String, AppError> {
-    run_cli_command(&format!("accounts remove {} --force", email))
+    let cli_res = run_cli_command(&format!("accounts remove {} --force", email));
+
+    if let Some(config_dir) = get_config_dir() {
+        let sanitized = email.replace("@", "_");
+        let acc_dir = config_dir.join("accounts").join(&sanitized);
+        if acc_dir.exists() {
+            let _ = fs::remove_dir_all(&acc_dir);
+        }
+
+        let config_path = config_dir.join("config.json");
+        if config_path.exists() {
+            if let Ok(content) = fs::read_to_string(&config_path) {
+                if let Ok(mut config) = serde_json::from_str::<serde_json::Value>(&content) {
+                    if config.get("activeAccount").and_then(|v| v.as_str()) == Some(&email) {
+                        config["activeAccount"] = serde_json::Value::Null;
+                        if let Ok(new_content) = serde_json::to_string_pretty(&config) {
+                            let _ = fs::write(&config_path, new_content);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    cli_res
 }
 
 #[tauri::command]
