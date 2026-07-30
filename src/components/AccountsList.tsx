@@ -1,5 +1,6 @@
 import React from "react";
 import { AccountData, ModelQuota } from "../types";
+import { groupModels } from "../utils/modelGrouping";
 import { Star, Shield, ShieldAlert, AlertCircle, Sparkles } from "lucide-react";
 import { cn } from "../utils/cn";
 
@@ -36,50 +37,14 @@ export const AccountsList: React.FC<AccountsListProps> = ({
     }
   };
 
-  // Helper to group models by provider family when there are many models
+  // Helper to group models by quota provider family (Claude / GPT combined, Gemini, etc.)
   const getModelDisplayItems = (models: ModelQuota[]) => {
-    if (models.length <= 3) {
-      return models.map((m) => {
-        const isExh = m.isExhausted;
-        const pct = isExh ? 0 : m.remainingPercentage;
-        return {
-          key: m.modelId,
-          label: m.label || m.modelId,
-          pct,
-        };
-      });
-    }
-
-    // Group by family (Claude, Gemini, GPT, etc.)
-    const familyMap = new Map<string, { pcts: number[]; count: number }>();
-
-    models.forEach((m) => {
-      const isExh = m.isExhausted;
-      const pct = isExh ? 0 : (m.remainingPercentage ?? null);
-      const label = (m.label || m.modelId).toLowerCase();
-
-      let family = "Other";
-      if (label.includes("claude")) family = "Claude";
-      else if (label.includes("gemini")) family = "Gemini";
-      else if (label.includes("gpt")) family = "GPT";
-      else if (m.label) family = m.label.split(" ")[0];
-
-      if (!familyMap.has(family)) {
-        familyMap.set(family, { pcts: [], count: 0 });
-      }
-      const entry = familyMap.get(family)!;
-      entry.count += 1;
-      if (pct !== null) entry.pcts.push(pct);
-    });
-
-    return Array.from(familyMap.entries()).map(([familyName, data]) => {
-      const minPct = data.pcts.length > 0 ? Math.min(...data.pcts) : null;
-      return {
-        key: familyName,
-        label: `${familyName} (${data.count})`,
-        pct: minPct,
-      };
-    });
+    const groups = groupModels(models);
+    return groups.map((group) => ({
+      key: group.name,
+      label: `${group.name} (${group.models.length})`,
+      pct: group.remainingPercentage,
+    }));
   };
 
   const getQuotaBarColor = (pct: number | null | undefined): string => {

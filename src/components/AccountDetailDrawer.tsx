@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { AccountData } from "../types";
+import { groupModels } from "../utils/modelGrouping";
 import { X, RefreshCw, Star, Sparkles, Database } from "lucide-react";
 import { cn } from "../utils/cn";
 import { ConfirmModal } from "./ConfirmModal";
@@ -171,19 +172,32 @@ export const AccountDetailDrawer: React.FC<AccountDetailDrawerProps> = ({
 
             {models.length > 0 ? (
               <div className="space-y-3">
-                {models.map((model) => {
-                  const pct = model.remainingPercentage;
-                  const isExh = model.isExhausted;
-                  const resets = model.timeUntilResetMs;
+                {groupModels(models).map((group) => {
+                  const pct = group.remainingPercentage;
+                  const isExh = group.isExhausted;
+                  const resets = group.timeUntilResetMs;
 
                   return (
-                    <div key={model.modelId} className="border border-border p-4 rounded-lg space-y-2 bg-card">
+                    <div key={group.name} className="border border-border p-4 rounded-lg space-y-2 bg-card">
                       <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <span className="text-sm font-medium">{model.label}</span>
-                          <div className="text-xs text-muted-foreground font-mono">{model.modelId}</div>
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-bold text-card-foreground">{group.name} Quota</span>
+                            {group.name === "Claude / GPT" && (
+                              <span className="text-[9px] px-1.5 py-0.2 rounded bg-primary/10 text-primary font-medium border border-primary/20">
+                                Shared Quota
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap gap-1">
+                            {group.models.map((m) => (
+                              <span key={m.modelId} className="text-[10px] text-muted-foreground font-mono bg-secondary/80 px-1.5 py-0.5 rounded border border-border/50">
+                                {m.label || m.modelId}
+                              </span>
+                            ))}
+                          </div>
                         </div>
-                        <span className={cn("text-sm font-semibold font-mono", getQuotaTextColor(pct, isExh))}>
+                        <span className={cn("text-sm font-semibold font-mono shrink-0 ml-2", getQuotaTextColor(pct, isExh))}>
                           {isExh ? "EXHAUSTED" : pct !== undefined && pct !== null ? `${Math.round(pct * 100)}%` : "N/A"}
                         </span>
                       </div>
@@ -198,7 +212,7 @@ export const AccountDetailDrawer: React.FC<AccountDetailDrawerProps> = ({
                       )}
 
                       <div className="flex justify-between text-xs text-muted-foreground pt-1">
-                        <span>Type: {model.isAutocompleteOnly ? "Autocomplete" : "Chat/Agent"}</span>
+                        <span>{group.models.length} model{group.models.length !== 1 ? "s" : ""}</span>
                         {resets !== undefined && resets !== null && resets > 0 && (
                           <span className="flex items-center gap-1 font-medium text-warning">
                             Resets in: {formatTime(resets)}

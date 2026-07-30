@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { AccountData } from "../types";
 import { useApp } from "../context/AppContext";
+import { groupModels } from "../utils/modelGrouping";
 import {
   RefreshCw,
   Star,
@@ -329,28 +330,43 @@ export const AccountDetail: React.FC<AccountDetailProps> = ({
             <span>Agent Quotas</span>
             {chatModels.length > 0 && (
               <span className="ml-auto normal-case font-medium text-muted-foreground/70 tracking-normal">
-                {chatModels.length} model{chatModels.length !== 1 ? "s" : ""}
+                {groupModels(chatModels).length} Quota Group{groupModels(chatModels).length !== 1 ? "s" : ""} ({chatModels.length} models)
               </span>
             )}
           </div>
 
           {chatModels.length > 0 ? (
-            <div className="space-y-2">
-              {chatModels.map((model) => {
-                const pct = model.remainingPercentage;
-                const isExh = model.isExhausted;
-                const resetLabel = formatTime(model.timeUntilResetMs);
+            <div className="space-y-3">
+              {groupModels(chatModels).map((group) => {
+                const pct = group.remainingPercentage;
+                const isExh = group.isExhausted;
+                const resetLabel = formatTime(group.timeUntilResetMs);
 
                 return (
-                  <div key={model.modelId} className="border border-border bg-card rounded-lg p-3.5 space-y-2.5">
+                  <div key={group.name} className="border border-border bg-card rounded-lg p-4 space-y-3 shadow-xs">
                     <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0 space-y-0.5">
-                        <p className="text-xs font-semibold text-card-foreground truncate" title={model.label}>
-                          {model.label}
-                        </p>
-                        <p className="text-[10px] text-muted-foreground font-mono truncate">
-                          {model.modelId}
-                        </p>
+                      <div className="min-w-0 space-y-1">
+                        <div className="flex items-center gap-2">
+                          <p className="text-xs font-bold text-card-foreground">
+                            {group.name} Quota
+                          </p>
+                          {group.name === "Claude / GPT" && (
+                            <span className="text-[9.5px] px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 font-medium">
+                              Shared Quota
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap gap-1 pt-0.5">
+                          {group.models.map((m) => (
+                            <span
+                              key={m.modelId}
+                              className="text-[10px] bg-secondary/80 text-muted-foreground px-2 py-0.5 rounded border border-border/60 font-mono"
+                              title={m.modelId}
+                            >
+                              {m.label || m.modelId}
+                            </span>
+                          ))}
+                        </div>
                       </div>
                       <div className="text-right shrink-0">
                         <span className={cn("text-sm font-bold font-mono", getQuotaTextColor(pct, isExh))}>
@@ -365,7 +381,7 @@ export const AccountDetail: React.FC<AccountDetailProps> = ({
                     </div>
 
                     {pct !== undefined && pct !== null && (
-                      <div className="w-full bg-secondary h-1.5 rounded-full overflow-hidden">
+                      <div className="w-full bg-secondary h-2 rounded-full overflow-hidden">
                         <div
                           className={cn("h-full rounded-full transition-all duration-500", getQuotaBarColor(pct, isExh))}
                           style={{ width: `${pct * 100}%` }}
