@@ -18,11 +18,13 @@ Gravity Monitor is designed for local developer workflows. It runs as a lightwei
 
 ## ⚡ Core Features
 
-- **Multi-Account Card Grid:** Displays all connected accounts in a responsive grid. Each card details individual model/agent remaining usage, progress bars, and token expiry status at a glance.
+- **Multi-Account Sidebar & Grid:** Displays all connected accounts with real-time status indicators (Valid, Expired, Invalid) and token expiry countdowns.
+- **Provider Quota Grouping:** Groups model quotas by provider family (`Claude / GPT` shared quota pool vs `Gemini` quota pool) so you can easily track combined usage limits.
+- **Auto Wakeup (Warmup) Widget:** Monitors background model warmup schedule and historical trigger status directly within the app.
 - **Subprocess Login Terminal:** Spawns `antigravity-usage login` inside a native Rust subprocess and streams real-time stdout/stderr progress logs directly into a modal console for complete OAuth visibility.
-- **One-Click Synchronization:** Instantly fetches the latest quota data from Google APIs or fallback local instances using a global "Sync All" command.
-- **Hardware-Accelerated Transitions:** Butter-smooth modal zooming and drawer slide-ins utilizing hardware-accelerated CSS animations.
-- **Configuration Utilities:** Toggle auto-refresh intervals, switch themes, open local session folders in Finder/Explorer, or wipe active tokens.
+- **One-Click Synchronization:** Instantly fetches the latest quota data from Google APIs or local cache using global or per-account sync commands.
+- **Hardware-Accelerated UI:** Smooth transitions, compact drawer views, dark/light themes powered by Tailwind CSS v4 and Lucide React.
+- **Configuration Utilities:** Toggle auto-refresh intervals, switch active accounts, open local session folders in Finder/Explorer, or wipe active tokens safely.
 
 ---
 
