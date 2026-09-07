@@ -26,6 +26,27 @@ export const QuotaSnapshotSchema = z.object({
   models: z.array(ModelQuotaSchema),
 });
 
+export const QuotaBucketSchema = z.object({
+  bucketId: z.string().optional().nullable(),
+  displayName: z.string(), // "Weekly Limit Remaining" | "Five Hour Limit Remaining"
+  window: z.string().optional().nullable(), // "weekly" | "5h"
+  description: z.string().optional().nullable(),
+  remainingFraction: z.number().optional().nullable(),
+  resetTime: z.string().optional().nullable(),
+});
+
+export const QuotaGroupSchema = z.object({
+  displayName: z.string(), // "Gemini Models" | "Claude and GPT models"
+  description: z.string().optional().nullable(),
+  buckets: z.array(QuotaBucketSchema),
+});
+
+export const QuotaSummarySchema = z.object({
+  groups: z.array(QuotaGroupSchema),
+  description: z.string().optional().nullable(),
+  updatedAt: z.string().optional().nullable(),
+});
+
 export const AccountDataSchema = z.object({
   email: z.string(),
   isActive: z.boolean(),
@@ -35,11 +56,15 @@ export const AccountDataSchema = z.object({
   tokenExpiresAt: z.number().optional().nullable(), // unix ms
   cachedCredits: PromptCreditsSchema.optional().nullable(),
   cachedSnapshot: QuotaSnapshotSchema.optional().nullable(),
+  quotaSummary: QuotaSummarySchema.optional().nullable(),
 });
 
 export type PromptCredits = z.infer<typeof PromptCreditsSchema>;
 export type ModelQuota = z.infer<typeof ModelQuotaSchema>;
 export type QuotaSnapshot = z.infer<typeof QuotaSnapshotSchema>;
+export type QuotaBucket = z.infer<typeof QuotaBucketSchema>;
+export type QuotaGroup = z.infer<typeof QuotaGroupSchema>;
+export type QuotaSummary = z.infer<typeof QuotaSummarySchema>;
 export type AccountData = z.infer<typeof AccountDataSchema>;
 
 // Wakeup feature types (read from filesystem via Rust)

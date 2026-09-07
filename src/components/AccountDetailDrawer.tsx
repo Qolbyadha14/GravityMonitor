@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { AccountData } from "../types";
-import { groupModels } from "../utils/modelGrouping";
-import { X, RefreshCw, Star, Sparkles, Database } from "lucide-react";
+import { groupModels, formatResetDuration } from "../utils/modelGrouping";
+import { X, RefreshCw, Star, Sparkles, Database, Clock, CalendarClock } from "lucide-react";
 import { cn } from "../utils/cn";
 import { ConfirmModal } from "./ConfirmModal";
 
@@ -61,15 +61,6 @@ export const AccountDetailDrawer: React.FC<AccountDetailDrawerProps> = ({
     return "text-danger";
   };
 
-  const formatTime = (ms: number | undefined | null) => {
-    if (ms === undefined || ms === null || ms <= 0) return "N/A";
-    const hours = Math.floor(ms / (1000 * 60 * 60));
-    const minutes = Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60));
-    if (hours > 0) {
-      return `${hours}h ${minutes}m`;
-    }
-    return `${minutes}m`;
-  };
 
   return (
     <div className="fixed inset-0 z-40 flex justify-end bg-black/55 animate-fade-in">
@@ -172,52 +163,88 @@ export const AccountDetailDrawer: React.FC<AccountDetailDrawerProps> = ({
 
             {models.length > 0 ? (
               <div className="space-y-3">
-                {groupModels(models).map((group) => {
-                  const pct = group.remainingPercentage;
-                  const isExh = group.isExhausted;
-                  const resets = group.timeUntilResetMs;
+                {groupModels(models, account.quotaSummary).map((group) => {
+                  const hasDualLimits = !!(group.fiveHourBucket || group.weeklyBucket);
+                  const fiveHourPct = group.fiveHourBucket?.remainingFraction ?? group.remainingPercentage;
+                  const fiveHourExh = group.fiveHourBucket?.remainingFraction === 0 || group.isExhausted;
+                  const fiveHourReset = formatResetDuration(group.fiveHourBucket?.resetTime, group.timeUntilResetMs);
+
+                  const weeklyPct = group.weeklyBucket?.remainingFraction;
+                  const weeklyExh = weeklyPct === 0;
+                  const weeklyReset = formatResetDuration(group.weeklyBucket?.resetTime);
 
                   return (
-                    <div key={group.name} className="border border-border p-4 rounded-lg space-y-2 bg-card">
+                    <div key={group.name} className="border border-border p-4 rounded-lg space-y-3 bg-card">
                       <div className="flex items-center justify-between">
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-bold text-card-foreground">{group.name} Quota</span>
-                            {group.name === "Claude / GPT" && (
-                              <span className="text-[9px] px-1.5 py-0.2 rounded bg-primary/10 text-primary font-medium border border-primary/20">
-                                Shared Quota
-                              </span>
-                            )}
-                          </div>
-                          <div className="flex flex-wrap gap-1">
-                            {group.models.map((m) => (
-                              <span key={m.modelId} className="text-[10px] text-muted-foreground font-mono bg-secondary/80 px-1.5 py-0.5 rounded border border-border/50">
-                                {m.label || m.modelId}
-                              </span>
-                            ))}
-                          </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-bold text-card-foreground">{group.name} Quota</span>
+                          {group.name === "Claude / GPT" && (
+                            <span className="text-[9px] px-1.5 py-0.2 rounded bg-primary/10 text-primary font-medium border border-primary/20">
+                              Shared Quota
+                            </span>
+                          )}
                         </div>
-                        <span className={cn("text-sm font-semibold font-mono shrink-0 ml-2", getQuotaTextColor(pct, isExh))}>
-                          {isExh ? "EXHAUSTED" : pct !== undefined && pct !== null ? `${Math.round(pct * 100)}%` : "N/A"}
-                        </span>
                       </div>
 
-                      {pct !== undefined && pct !== null && (
-                        <div className="w-full bg-secondary h-2 rounded-full overflow-hidden">
-                          <div
-                            className={cn("h-full rounded-full transition-all duration-500", getQuotaColor(pct, isExh))}
-                            style={{ width: `${pct * 100}%` }}
-                          />
+                      {/* Dual limits */}
+                      <div className="space-y-2">
+                        {/* 5-Hour */}
+                        <div className="bg-secondary/20 border border-border/50 rounded p-2 space-y-1">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="font-medium text-card-foreground flex items-center gap-1 text-[11px]">
+                              <Clock size={11} className="text-primary" /> 5-Hour Limit
+                            </span>
+                            <div className="flex items-center gap-1.5">
+                              {fiveHourReset && (
+                                <span className="text-[10px] text-warning font-medium">↻ {fiveHourReset}</span>
+                              )}
+                              <span className={cn("font-bold font-mono text-[11px]", getQuotaTextColor(fiveHourPct, fiveHourExh))}>
+                                {fiveHourExh ? "EXHAUSTED" : fiveHourPct !== undefined && fiveHourPct !== null ? `${Math.round(fiveHourPct * 100)}%` : "N/A"}
+                              </span>
+                            </div>
+                          </div>
+                          {fiveHourPct !== undefined && fiveHourPct !== null && (
+                            <div className="w-full bg-secondary h-1.5 rounded-full overflow-hidden">
+                              <div
+                                className={cn("h-full rounded-full transition-all duration-500", getQuotaColor(fiveHourPct, fiveHourExh))}
+                                style={{ width: `${Math.max(0, Math.min(100, fiveHourPct * 100))}%` }}
+                              />
+                            </div>
+                          )}
                         </div>
-                      )}
 
-                      <div className="flex justify-between text-xs text-muted-foreground pt-1">
-                        <span>{group.models.length} model{group.models.length !== 1 ? "s" : ""}</span>
-                        {resets !== undefined && resets !== null && resets > 0 && (
-                          <span className="flex items-center gap-1 font-medium text-warning">
-                            Resets in: {formatTime(resets)}
+                        {/* Weekly */}
+                        <div className="bg-secondary/20 border border-border/50 rounded p-2 space-y-1">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="font-medium text-card-foreground flex items-center gap-1 text-[11px]">
+                              <CalendarClock size={11} className="text-primary" /> Weekly Limit
+                            </span>
+                            <div className="flex items-center gap-1.5">
+                              {weeklyReset && (
+                                <span className="text-[10px] text-warning font-medium">↻ {weeklyReset}</span>
+                              )}
+                              <span className={cn("font-bold font-mono text-[11px]", getQuotaTextColor(weeklyPct, weeklyExh))}>
+                                {weeklyExh ? "EXHAUSTED" : weeklyPct !== undefined && weeklyPct !== null ? `${Math.round(weeklyPct * 100)}%` : !hasDualLimits ? "Sync to view" : "N/A"}
+                              </span>
+                            </div>
+                          </div>
+                          {weeklyPct !== undefined && weeklyPct !== null && (
+                            <div className="w-full bg-secondary h-1.5 rounded-full overflow-hidden">
+                              <div
+                                className={cn("h-full rounded-full transition-all duration-500", getQuotaColor(weeklyPct, weeklyExh))}
+                                style={{ width: `${Math.max(0, Math.min(100, weeklyPct * 100))}%` }}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap gap-1 pt-1">
+                        {group.models.map((m) => (
+                          <span key={m.modelId} className="text-[10px] text-muted-foreground font-mono bg-secondary/80 px-1.5 py-0.5 rounded border border-border/50">
+                            {m.label || m.modelId}
                           </span>
-                        )}
+                        ))}
                       </div>
                     </div>
                   );

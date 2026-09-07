@@ -62,8 +62,16 @@ export const Dashboard: React.FC = () => {
     const pcts = models
       .filter((m) => m.remainingPercentage !== undefined && m.remainingPercentage !== null)
       .map((m) => m.remainingPercentage as number);
-    const minPct = pcts.length > 0 ? Math.min(...pcts) : null;
-    const hasExhausted = models.some((m) => m.isExhausted);
+
+    // Also factor in quotaSummary buckets (Weekly & 5-Hour limits)
+    const summaryBuckets = acc.quotaSummary?.groups?.flatMap((g) => g.buckets) ?? [];
+    const bucketPcts = summaryBuckets
+      .filter((b) => b.remainingFraction !== undefined && b.remainingFraction !== null)
+      .map((b) => b.remainingFraction as number);
+
+    const allPcts = [...pcts, ...bucketPcts];
+    const minPct = allPcts.length > 0 ? Math.min(...allPcts) : null;
+    const hasExhausted = models.some((m) => m.isExhausted) || bucketPcts.some((p) => p === 0);
 
     if (acc.status === "invalid" || hasExhausted || minPct === 0) {
       exhaustedCount++;

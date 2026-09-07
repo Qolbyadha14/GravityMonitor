@@ -38,13 +38,20 @@ export const AccountsList: React.FC<AccountsListProps> = ({
   };
 
   // Helper to group models by quota provider family (Claude / GPT combined, Gemini, etc.)
-  const getModelDisplayItems = (models: ModelQuota[]) => {
-    const groups = groupModels(models);
-    return groups.map((group) => ({
-      key: group.name,
-      label: `${group.name} (${group.models.length})`,
-      pct: group.remainingPercentage,
-    }));
+  const getModelDisplayItems = (models: ModelQuota[], quotaSummary?: AccountData["quotaSummary"]) => {
+    const groups = groupModels(models, quotaSummary);
+    return groups.map((group) => {
+      const fiveHourPct = group.fiveHourBucket?.remainingFraction ?? group.remainingPercentage;
+      const weeklyPct = group.weeklyBucket?.remainingFraction;
+      return {
+        key: group.name,
+        name: group.name,
+        label: `${group.name} (${group.models.length})`,
+        fiveHourPct,
+        weeklyPct,
+        hasDual: !!(group.fiveHourBucket || group.weeklyBucket),
+      };
+    });
   };
 
   const getQuotaBarColor = (pct: number | null | undefined): string => {
@@ -91,7 +98,7 @@ export const AccountsList: React.FC<AccountsListProps> = ({
         const isSelected = account.email === selectedEmail;
         const chatModels = account.cachedSnapshot?.models?.filter((m) => !m.isAutocompleteOnly) ?? [];
         const modelCount = chatModels.length;
-        const displayItems = getModelDisplayItems(chatModels);
+        const displayItems = getModelDisplayItems(chatModels, account.quotaSummary);
 
         return (
           <button
@@ -132,24 +139,51 @@ export const AccountsList: React.FC<AccountsListProps> = ({
             {/* Bottom row: plan + per-model quota mini bars */}
             <div className="mt-2 space-y-1.5">
               {displayItems.length > 0 ? (
-                <div className="space-y-1">
+                <div className="space-y-1.5">
                   {displayItems.map((item) => (
-                    <div key={item.key} className="flex items-center gap-2 text-[10px]">
-                      <span
-                        className="font-medium text-muted-foreground truncate max-w-[90px] shrink-0"
-                        title={item.label}
-                      >
-                        {item.label}
-                      </span>
-                      <div className="flex-1 h-1 rounded-full bg-secondary overflow-hidden">
-                        <div
-                          className={cn("h-full rounded-full transition-all duration-300", getQuotaBarColor(item.pct))}
-                          style={{ width: item.pct !== undefined && item.pct !== null ? `${item.pct * 100}%` : "0%" }}
-                        />
+                    <div key={item.key} className="space-y-0.5 text-[10px]">
+                      <div className="flex items-center justify-between gap-1">
+                        <span
+                          className="font-medium text-muted-foreground truncate max-w-[95px]"
+                          title={item.label}
+                        >
+                          {item.name}
+                        </span>
+                        {item.hasDual ? (
+                          <span className="font-mono text-[9px] text-muted-foreground shrink-0">
+                            5h <strong className={getQuotaLabelColor(item.fiveHourPct)}>{item.fiveHourPct !== null && item.fiveHourPct !== undefined ? `${Math.round(item.fiveHourPct * 100)}%` : "N/A"}</strong>
+                            {" · "}
+                            Wk <strong className={getQuotaLabelColor(item.weeklyPct)}>{item.weeklyPct !== null && item.weeklyPct !== undefined ? `${Math.round(item.weeklyPct * 100)}%` : "N/A"}</strong>
+                          </span>
+                        ) : (
+                          <span className={cn("font-semibold font-mono text-[9.5px] shrink-0", getQuotaLabelColor(item.fiveHourPct))}>
+                            {getQuotaLabel(item.fiveHourPct)}
+                          </span>
+                        )}
                       </div>
-                      <span className={cn("font-semibold shrink-0 font-mono text-[9.5px]", getQuotaLabelColor(item.pct))}>
-                        {getQuotaLabel(item.pct)}
-                      </span>
+                      {item.hasDual ? (
+                        <div className="flex gap-1 items-center">
+                          <div className="flex-1 h-1 rounded-full bg-secondary overflow-hidden" title="5-Hour Limit">
+                            <div
+                              className={cn("h-full rounded-full transition-all duration-300", getQuotaBarColor(item.fiveHourPct))}
+                              style={{ width: item.fiveHourPct !== undefined && item.fiveHourPct !== null ? `${item.fiveHourPct * 100}%` : "0%" }}
+                            />
+                          </div>
+                          <div className="flex-1 h-1 rounded-full bg-secondary overflow-hidden" title="Weekly Limit">
+                            <div
+                              className={cn("h-full rounded-full transition-all duration-300", getQuotaBarColor(item.weeklyPct))}
+                              style={{ width: item.weeklyPct !== undefined && item.weeklyPct !== null ? `${item.weeklyPct * 100}%` : "0%" }}
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex-1 h-1 rounded-full bg-secondary overflow-hidden">
+                          <div
+                            className={cn("h-full rounded-full transition-all duration-300", getQuotaBarColor(item.fiveHourPct))}
+                            style={{ width: item.fiveHourPct !== undefined && item.fiveHourPct !== null ? `${item.fiveHourPct * 100}%` : "0%" }}
+                          />
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

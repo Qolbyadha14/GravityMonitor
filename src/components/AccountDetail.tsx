@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { AccountData } from "../types";
 import { useApp } from "../context/AppContext";
-import { groupModels } from "../utils/modelGrouping";
+import { groupModels, formatResetDuration } from "../utils/modelGrouping";
 import {
   RefreshCw,
   Star,
@@ -337,57 +337,134 @@ export const AccountDetail: React.FC<AccountDetailProps> = ({
 
           {chatModels.length > 0 ? (
             <div className="space-y-3">
-              {groupModels(chatModels).map((group) => {
-                const pct = group.remainingPercentage;
-                const isExh = group.isExhausted;
-                const resetLabel = formatTime(group.timeUntilResetMs);
+              {groupModels(chatModels, account.quotaSummary).map((group) => {
+                const hasDualLimits = !!(group.fiveHourBucket || group.weeklyBucket);
+                const fiveHourPct = group.fiveHourBucket?.remainingFraction ?? group.remainingPercentage;
+                const fiveHourExh = group.fiveHourBucket?.remainingFraction === 0 || group.isExhausted;
+                const fiveHourReset = formatResetDuration(group.fiveHourBucket?.resetTime, group.timeUntilResetMs);
+
+                const weeklyPct = group.weeklyBucket?.remainingFraction;
+                const weeklyExh = weeklyPct === 0;
+                const weeklyReset = formatResetDuration(group.weeklyBucket?.resetTime);
 
                 return (
-                  <div key={group.name} className="border border-border bg-card rounded-lg p-4 space-y-3 shadow-xs">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0 space-y-1">
-                        <div className="flex items-center gap-2">
-                          <p className="text-xs font-bold text-card-foreground">
-                            {group.name} Quota
-                          </p>
-                          {group.name === "Claude / GPT" && (
-                            <span className="text-[9.5px] px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 font-medium">
-                              Shared Quota
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex flex-wrap gap-1 pt-0.5">
-                          {group.models.map((m) => (
-                            <span
-                              key={m.modelId}
-                              className="text-[10px] bg-secondary/80 text-muted-foreground px-2 py-0.5 rounded border border-border/60 font-mono"
-                              title={m.modelId}
-                            >
-                              {m.label || m.modelId}
-                            </span>
-                          ))}
-                        </div>
+                  <div key={group.name} className="border border-border bg-card rounded-lg p-4 space-y-3.5 shadow-xs">
+                    {/* Group Title & Badges */}
+                    <div className="flex items-center justify-between gap-2 border-b border-border/40 pb-2.5">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-bold text-card-foreground">
+                          {group.name} Quota
+                        </p>
+                        {group.name === "Claude / GPT" ? (
+                          <span className="text-[9.5px] px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 font-medium">
+                            Shared Quota
+                          </span>
+                        ) : (
+                          <span className="text-[9.5px] px-1.5 py-0.5 rounded bg-secondary text-muted-foreground border border-border/60 font-medium">
+                            Native Pool
+                          </span>
+                        )}
                       </div>
-                      <div className="text-right shrink-0">
-                        <span className={cn("text-sm font-bold font-mono", getQuotaTextColor(pct, isExh))}>
-                          {isExh ? "EXHAUSTED" : pct !== undefined && pct !== null ? `${Math.round(pct * 100)}%` : "N/A"}
+                      {group.quotaGroup?.description && (
+                        <span className="text-[10px] text-muted-foreground truncate max-w-[200px]" title={group.quotaGroup.description}>
+                          {group.quotaGroup.description}
                         </span>
-                        {resetLabel && (
-                          <p className="text-[10px] text-warning font-medium mt-0.5">
-                            ↻ {resetLabel}
+                      )}
+                    </div>
+
+                    {/* Dual Limits Display */}
+                    <div className="space-y-2.5">
+                      {/* Five Hour Limit Remaining */}
+                      <div className="bg-secondary/30 border border-border/60 rounded-md p-2.5 space-y-1.5">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-semibold text-card-foreground flex items-center gap-1.5">
+                            <Clock size={12} className="text-primary" />
+                            Five Hour Limit Remaining
+                          </span>
+                          <div className="flex items-center gap-2">
+                            {fiveHourReset && (
+                              <span className="text-[10.5px] text-warning font-medium flex items-center gap-0.5">
+                                ↻ {fiveHourReset}
+                              </span>
+                            )}
+                            <span className={cn("font-bold font-mono text-xs", getQuotaTextColor(fiveHourPct, fiveHourExh))}>
+                              {fiveHourExh ? "EXHAUSTED" : fiveHourPct !== undefined && fiveHourPct !== null ? `${Math.round(fiveHourPct * 100)}%` : "N/A"}
+                            </span>
+                          </div>
+                        </div>
+                        {fiveHourPct !== undefined && fiveHourPct !== null && (
+                          <div className="w-full bg-secondary h-2 rounded-full overflow-hidden">
+                            <div
+                              className={cn("h-full rounded-full transition-all duration-500", getQuotaBarColor(fiveHourPct, fiveHourExh))}
+                              style={{ width: `${Math.max(0, Math.min(100, fiveHourPct * 100))}%` }}
+                            />
+                          </div>
+                        )}
+                        {group.fiveHourBucket?.description && (
+                          <p className="text-[10px] text-muted-foreground/80 leading-tight">
+                            {group.fiveHourBucket.description}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Weekly Limit Remaining */}
+                      <div className="bg-secondary/30 border border-border/60 rounded-md p-2.5 space-y-1.5">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-semibold text-card-foreground flex items-center gap-1.5">
+                            <CalendarClock size={12} className="text-primary" />
+                            Weekly Limit Remaining
+                          </span>
+                          <div className="flex items-center gap-2">
+                            {weeklyReset && (
+                              <span className="text-[10.5px] text-warning font-medium flex items-center gap-0.5">
+                                ↻ {weeklyReset}
+                              </span>
+                            )}
+                            <span className={cn("font-bold font-mono text-xs", getQuotaTextColor(weeklyPct, weeklyExh))}>
+                              {weeklyExh ? "EXHAUSTED" : weeklyPct !== undefined && weeklyPct !== null ? `${Math.round(weeklyPct * 100)}%` : !hasDualLimits ? "Sync to view" : "N/A"}
+                            </span>
+                          </div>
+                        </div>
+                        {weeklyPct !== undefined && weeklyPct !== null && (
+                          <div className="w-full bg-secondary h-2 rounded-full overflow-hidden">
+                            <div
+                              className={cn("h-full rounded-full transition-all duration-500", getQuotaBarColor(weeklyPct, weeklyExh))}
+                              style={{ width: `${Math.max(0, Math.min(100, weeklyPct * 100))}%` }}
+                            />
+                          </div>
+                        )}
+                        {group.weeklyBucket?.description && (
+                          <p className="text-[10px] text-muted-foreground/80 leading-tight">
+                            {group.weeklyBucket.description}
                           </p>
                         )}
                       </div>
                     </div>
 
-                    {pct !== undefined && pct !== null && (
-                      <div className="w-full bg-secondary h-2 rounded-full overflow-hidden">
-                        <div
-                          className={cn("h-full rounded-full transition-all duration-500", getQuotaBarColor(pct, isExh))}
-                          style={{ width: `${pct * 100}%` }}
-                        />
+                    {/* Models with Individual Quota Badges */}
+                    <div className="pt-1 space-y-1.5">
+                      <p className="text-[10px] font-semibold text-muted-foreground/70 uppercase tracking-wider">
+                        Included Models ({group.models.length})
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {group.models.map((m) => {
+                          const mPct = m.remainingPercentage ?? fiveHourPct;
+                          const mExh = m.isExhausted || mPct === 0;
+                          return (
+                            <span
+                              key={m.modelId}
+                              className="inline-flex items-center gap-1.5 text-[10px] bg-secondary/80 text-card-foreground px-2 py-1 rounded border border-border/60 font-mono"
+                              title={`${m.modelId} · ${mPct !== null && mPct !== undefined ? Math.round(mPct * 100) + "% remaining" : "N/A"}`}
+                            >
+                              <span className="truncate max-w-[170px]">{m.label || m.modelId}</span>
+                              <span className={cn("font-bold text-[9.5px]", getQuotaTextColor(mPct, mExh))}>
+                                {mExh ? "0%" : mPct !== undefined && mPct !== null ? `${Math.round(mPct * 100)}%` : "N/A"}
+                              </span>
+                            </span>
+                          );
+                        })}
                       </div>
-                    )}
+                    </div>
                   </div>
                 );
               })}

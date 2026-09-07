@@ -110,6 +110,36 @@ struct TokenInfo {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+struct QuotaBucket {
+    #[serde(rename = "bucketId")]
+    bucket_id: Option<String>,
+    #[serde(rename = "displayName")]
+    display_name: String,
+    window: Option<String>, // "weekly" | "5h"
+    description: Option<String>,
+    #[serde(rename = "remainingFraction")]
+    remaining_fraction: Option<f64>,
+    #[serde(rename = "resetTime")]
+    reset_time: Option<String>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+struct QuotaGroup {
+    #[serde(rename = "displayName")]
+    display_name: String,
+    description: Option<String>,
+    buckets: Vec<QuotaBucket>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+struct QuotaSummary {
+    groups: Vec<QuotaGroup>,
+    description: Option<String>,
+    #[serde(rename = "updatedAt")]
+    updated_at: Option<String>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 struct AccountData {
     email: String,
     #[serde(rename = "isActive")]
@@ -125,6 +155,8 @@ struct AccountData {
     cached_credits: Option<PromptCredits>,
     #[serde(rename = "cachedSnapshot")]
     cached_snapshot: Option<QuotaSnapshot>,
+    #[serde(rename = "quotaSummary")]
+    quota_summary: Option<QuotaSummary>,
 }
 
 fn home_dir() -> Option<PathBuf> {
@@ -245,6 +277,262 @@ fn run_cli_command(args_str: &str) -> Result<String, AppError> {
     }
 }
 
+fn current_iso_timestamp() -> String {
+    #[cfg(not(target_os = "windows"))]
+    {
+        if let Ok(out) = Command::new("date").arg("-u").arg("+%Y-%m-%dT%H:%M:%SZ").output() {
+            let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !s.is_empty() {
+                return s;
+            }
+        }
+    }
+    let now = std::time::SystemTime::now();
+    let duration = now.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+    format!("{}Z", duration.as_secs())
+}
+
+/// Fetches weekly & 5-hour quota summary from Google Cloud Code API
+/// (prioritizing Antigravity's daily-cloudcode-pa endpoint) and saves to quota_summary.json.
+fn fetch_and_save_quota_summary(acc_dir: &std::path::Path, access_token: &str) -> Option<QuotaSummary> {
+    let token = access_token.trim();
+    if token.is_empty() {
+        return None;
+    }
+
+    if !acc_dir.exists() {
+        return None;
+    }
+
+    // Antigravity IDE connects to daily-cloudcode-pa.googleapis.com
+    const ENDPOINTS: [&str; 2] = [
+        "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+        "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+    ];
+
+    for endpoint in ENDPOINTS {
+        let output = Command::new("curl")
+            .arg("-s")
+            .arg("-X")
+            .arg("POST")
+            .arg(endpoint)
+            .arg("-H")
+            .arg(format!("Authorization: Bearer {}", token))
+            .arg("-H")
+            .arg("Content-Type: application/json")
+            .arg("-H")
+            .arg("User-Agent: antigravity")
+            .arg("-d")
+            .arg(r#"{"project":"aicode-consumers"}"#)
+            .output()
+            .ok();
+
+        let Some(out) = output else {
+            continue;
+        };
+
+        if !out.status.success() {
+            continue;
+        }
+
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let Ok(mut val): Result<serde_json::Value, _> = serde_json::from_str(&stdout) else {
+            continue;
+        };
+
+        if let Some(resp) = val.get("response") {
+            val = resp.clone();
+        }
+
+        if val.get("groups").is_none() {
+            continue;
+        }
+
+        let Ok(mut summary): Result<QuotaSummary, _> = serde_json::from_value(val) else {
+            continue;
+        };
+
+        summary.updated_at = Some(current_iso_timestamp());
+
+        let summary_path = acc_dir.join("quota_summary.json");
+        if let Ok(content) = serde_json::to_string_pretty(&summary) {
+            let _ = fs::write(&summary_path, content);
+        }
+
+        return Some(summary);
+    }
+
+    None
+}
+
+/// Updates cache.json models using real quota info from daily-cloudcode-pa endpoint.
+fn sync_account_models_cache(acc_dir: &std::path::Path, access_token: &str) {
+    let token = access_token.trim();
+    if token.is_empty() || !acc_dir.is_dir() {
+        return;
+    }
+
+    let cache_path = acc_dir.join("cache.json");
+    let mut cache: serde_json::Value = if cache_path.exists() {
+        let content = fs::read_to_string(&cache_path).unwrap_or_default();
+        serde_json::from_str(&content).unwrap_or(serde_json::json!({}))
+    } else {
+        serde_json::json!({})
+    };
+
+    const MODEL_ENDPOINTS: [&str; 2] = [
+        "https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
+        "https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
+    ];
+
+    for endpoint in MODEL_ENDPOINTS {
+        let output = Command::new("curl")
+            .arg("-s")
+            .arg("-X")
+            .arg("POST")
+            .arg(endpoint)
+            .arg("-H")
+            .arg(format!("Authorization: Bearer {}", token))
+            .arg("-H")
+            .arg("Content-Type: application/json")
+            .arg("-H")
+            .arg("User-Agent: antigravity")
+            .arg("-d")
+            .arg(r#"{"project":"aicode-consumers"}"#)
+            .output()
+            .ok();
+
+        let Some(out) = output else {
+            continue;
+        };
+
+        if !out.status.success() {
+            continue;
+        }
+
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let Ok(data): Result<serde_json::Value, _> = serde_json::from_str(&stdout) else {
+            continue;
+        };
+
+        let Some(raw_models) = data.get("models").and_then(|m| m.as_object()) else {
+            continue;
+        };
+
+        let mut models_vec = Vec::new();
+        for (model_id, m) in raw_models {
+            let label = m.get("displayName")
+                .and_then(|v| v.as_str())
+                .unwrap_or(model_id);
+            let quota_info = m.get("quotaInfo");
+            let remaining_percentage = quota_info
+                .and_then(|q| q.get("remainingFraction"))
+                .and_then(|f| f.as_f64());
+            let is_exhausted = remaining_percentage == Some(0.0);
+            let reset_time = quota_info
+                .and_then(|q| q.get("resetTime"))
+                .and_then(|r| r.as_str())
+                .map(|s| s.to_string());
+            let is_autocomplete_only = model_id.contains("gemini-2.5")
+                || label.contains("Gemini 2.5")
+                || model_id.starts_with("tab_")
+                || model_id.starts_with("chat_");
+
+            models_vec.push(serde_json::json!({
+                "label": label,
+                "modelId": model_id,
+                "remainingPercentage": remaining_percentage,
+                "isExhausted": is_exhausted,
+                "resetTime": reset_time,
+                "timeUntilResetMs": serde_json::Value::Null,
+                "isAutocompleteOnly": is_autocomplete_only
+            }));
+        }
+
+        if !models_vec.is_empty() {
+            if cache.get("data").is_none() {
+                cache["data"] = serde_json::json!({
+                    "timestamp": current_iso_timestamp(),
+                    "method": "google",
+                    "models": models_vec
+                });
+            } else {
+                cache["data"]["models"] = serde_json::json!(models_vec);
+                cache["data"]["timestamp"] = serde_json::json!(current_iso_timestamp());
+            }
+            cache["cachedAt"] = serde_json::json!(current_iso_timestamp());
+            cache["ttl"] = serde_json::json!(300);
+
+            if let Ok(c) = serde_json::to_string_pretty(&cache) {
+                let _ = fs::write(&cache_path, c);
+            }
+            break;
+        }
+    }
+}
+
+/// Syncs quota summary for an individual account directory using guard clauses.
+fn sync_account_quota_summary(acc_dir: &std::path::Path) {
+    if !acc_dir.is_dir() {
+        return;
+    }
+
+    let tokens_path = acc_dir.join("tokens.json");
+    if !tokens_path.exists() {
+        return;
+    }
+
+    let Ok(content) = fs::read_to_string(&tokens_path) else {
+        return;
+    };
+
+    let Ok(tokens) = serde_json::from_str::<TokenInfo>(&content) else {
+        return;
+    };
+
+    if tokens.access_token.trim().is_empty() {
+        return;
+    }
+
+    fetch_and_save_quota_summary(acc_dir, &tokens.access_token);
+    sync_account_models_cache(acc_dir, &tokens.access_token);
+}
+
+/// Syncs quota summary for a single account by email using guard clauses.
+fn sync_single_account_quota_summary(email: &str) {
+    let Some(config_dir) = get_config_dir() else {
+        return;
+    };
+
+    let sanitized = email.replace("@", "_");
+    let acc_dir = config_dir.join("accounts").join(&sanitized);
+    if !acc_dir.exists() {
+        return;
+    }
+
+    sync_account_quota_summary(&acc_dir);
+}
+
+/// Syncs quota summaries for all accounts in the accounts directory using guard clauses.
+fn sync_all_accounts_quota_summary() {
+    let Some(config_dir) = get_config_dir() else {
+        return;
+    };
+
+    let accounts_dir = config_dir.join("accounts");
+    if !accounts_dir.exists() {
+        return;
+    }
+
+    let Ok(entries) = fs::read_dir(&accounts_dir) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        sync_account_quota_summary(&entry.path());
+    }
+}
+
 #[tauri::command]
 fn get_accounts_data() -> Result<Vec<AccountData>, AppError> {
     let config_dir = get_config_dir().ok_or(AppError::ConfigDirNotFound)?;
@@ -282,79 +570,98 @@ fn get_accounts_data() -> Result<Vec<AccountData>, AppError> {
             Err(_) => continue,
         };
         let path = entry.path();
-        if path.is_dir() {
-            let tokens_path = path.join("tokens.json");
-            if !tokens_path.exists() {
-                continue;
-            }
+        if !path.is_dir() {
+            continue;
+        }
 
-            // Read metadata.json
-            let metadata_path = path.join("metadata.json");
-            let metadata: Option<AccountMetadata> = if metadata_path.exists() {
-                let content = fs::read_to_string(&metadata_path).unwrap_or_default();
-                serde_json::from_str(&content).ok()
-            } else {
-                None
-            };
+        let tokens_path = path.join("tokens.json");
+        if !tokens_path.exists() {
+            continue;
+        }
 
-            let email = match &metadata {
-                Some(meta) => meta.email.clone(),
-                None => path.file_name().unwrap_or_default().to_string_lossy().replace("_", "@"),
-            };
+        // Read metadata.json
+        let metadata_path = path.join("metadata.json");
+        let metadata: Option<AccountMetadata> = if metadata_path.exists() {
+            let content = fs::read_to_string(&metadata_path).unwrap_or_default();
+            serde_json::from_str(&content).ok()
+        } else {
+            None
+        };
 
-            // Read tokens.json to calculate status
-            let mut token_expires_at: Option<u64> = None;
-            let status = if let Ok(content) = fs::read_to_string(&tokens_path) {
-                if let Ok(tokens) = serde_json::from_str::<TokenInfo>(&content) {
-                    token_expires_at = Some(tokens.expires_at);
-                    let now = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| d.as_millis() as u64)
-                        .unwrap_or(0);
-                    let expiry_buffer = 5 * 60 * 1000; // 5 mins
-                    if now >= tokens.expires_at.saturating_sub(expiry_buffer) {
-                        if tokens.refresh_token.is_some() {
-                            "expired".to_string()
-                        } else {
-                            "invalid".to_string()
-                        }
+        let email = match &metadata {
+            Some(meta) => meta.email.clone(),
+            None => path.file_name().unwrap_or_default().to_string_lossy().replace("_", "@"),
+        };
+
+        // Read tokens.json to calculate status
+        let mut token_expires_at: Option<u64> = None;
+        let mut current_access_token: Option<String> = None;
+        let status = if let Ok(content) = fs::read_to_string(&tokens_path) {
+            if let Ok(tokens) = serde_json::from_str::<TokenInfo>(&content) {
+                token_expires_at = Some(tokens.expires_at);
+                current_access_token = Some(tokens.access_token.clone());
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as u64)
+                    .unwrap_or(0);
+                let expiry_buffer = 5 * 60 * 1000; // 5 mins
+                if now >= tokens.expires_at.saturating_sub(expiry_buffer) {
+                    if tokens.refresh_token.is_some() {
+                        "expired".to_string()
                     } else {
-                        "valid".to_string()
+                        "invalid".to_string()
                     }
                 } else {
-                    "invalid".to_string()
+                    "valid".to_string()
                 }
             } else {
                 "invalid".to_string()
-            };
-
-            // Read cache.json
-            let cache_path = path.join("cache.json");
-            let mut cached_credits = None;
-            let mut cached_snapshot = None;
-            if cache_path.exists() {
-                let content = fs::read_to_string(&cache_path).unwrap_or_default();
-                if let Ok(cache) = serde_json::from_str::<AccountCache>(&content) {
-                    cached_credits = cache.data.prompt_credits.clone();
-                    cached_snapshot = Some(cache.data);
-                }
             }
+        } else {
+            "invalid".to_string()
+        };
 
-            let is_active = Some(&email) == active_account.as_ref();
-            let last_used = metadata.as_ref().and_then(|m| m.last_used.clone());
-            let added_at = metadata.as_ref().and_then(|m| m.added_at.clone());
-
-            accounts.push(AccountData {
-                email,
-                is_active,
-                status,
-                last_used,
-                added_at,
-                token_expires_at,
-                cached_credits,
-                cached_snapshot,
-            });
+        // Read cache.json
+        let cache_path = path.join("cache.json");
+        let mut cached_credits = None;
+        let mut cached_snapshot = None;
+        if cache_path.exists() {
+            let content = fs::read_to_string(&cache_path).unwrap_or_default();
+            if let Ok(cache) = serde_json::from_str::<AccountCache>(&content) {
+                cached_credits = cache.data.prompt_credits.clone();
+                cached_snapshot = Some(cache.data);
+            }
         }
+
+        // Read quota_summary.json (Weekly & 5-Hour Limits)
+        let summary_path = path.join("quota_summary.json");
+        let mut quota_summary: Option<QuotaSummary> = None;
+        if summary_path.exists() {
+            let content = fs::read_to_string(&summary_path).unwrap_or_default();
+            if let Ok(qs) = serde_json::from_str::<QuotaSummary>(&content) {
+                quota_summary = Some(qs);
+            }
+        } else if status == "valid" {
+            if let Some(tok) = &current_access_token {
+                quota_summary = fetch_and_save_quota_summary(&path, tok);
+            }
+        }
+
+        let is_active = Some(&email) == active_account.as_ref();
+        let last_used = metadata.as_ref().and_then(|m| m.last_used.clone());
+        let added_at = metadata.as_ref().and_then(|m| m.added_at.clone());
+
+        accounts.push(AccountData {
+            email,
+            is_active,
+            status,
+            last_used,
+            added_at,
+            token_expires_at,
+            cached_credits,
+            cached_snapshot,
+            quota_summary,
+        });
     }
 
     // Sort active account first, then by email
@@ -374,7 +681,12 @@ fn get_accounts_data() -> Result<Vec<AccountData>, AppError> {
 #[tauri::command]
 async fn sync_all_accounts() -> Result<serde_json::Value, AppError> {
     let output = tokio::task::spawn_blocking(|| {
-        run_cli_command("quota --json --all --refresh")
+        let res = run_cli_command("quota --json --all --refresh");
+
+        // Also fetch and update quota_summary for all accounts
+        sync_all_accounts_quota_summary();
+
+        res
     }).await.map_err(|e| AppError::Generic { message: e.to_string() })?;
 
     match output {
@@ -411,8 +723,14 @@ async fn sync_all_accounts() -> Result<serde_json::Value, AppError> {
 
 #[tauri::command]
 async fn sync_account(email: String) -> Result<serde_json::Value, AppError> {
+    let email_clone = email.clone();
     let output = tokio::task::spawn_blocking(move || {
-        run_cli_command(&format!("quota --json --refresh --account {}", email))
+        let res = run_cli_command(&format!("quota --json --refresh --account {}", email_clone));
+
+        // Also fetch and update quota_summary for this account
+        sync_single_account_quota_summary(&email_clone);
+
+        res
     }).await.map_err(|e| AppError::Generic { message: e.to_string() })?;
 
     match output {
@@ -439,6 +757,17 @@ async fn sync_account(email: String) -> Result<serde_json::Value, AppError> {
             Err(e)
         }
     }
+}
+
+#[tauri::command]
+async fn refresh_quota_summary(email: Option<String>) -> Result<(), AppError> {
+    tokio::task::spawn_blocking(move || {
+        match email {
+            Some(e) => sync_single_account_quota_summary(&e),
+            None => sync_all_accounts_quota_summary(),
+        }
+        Ok(())
+    }).await.map_err(|e| AppError::Generic { message: e.to_string() })?
 }
 
 #[tauri::command]
@@ -697,8 +1026,75 @@ pub fn run() {
             open_session_folder,
             clear_all_sessions,
             get_versions,
-            get_wakeup_status
+            get_wakeup_status,
+            refresh_quota_summary
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_quota_summary_deserialization() {
+        let sample_json = r#"{
+            "groups": [
+                {
+                    "displayName": "Gemini Models",
+                    "description": "Models within this group: Gemini Flash, Gemini Pro",
+                    "buckets": [
+                        {
+                            "bucketId": "gemini-weekly",
+                            "displayName": "Weekly Limit Remaining",
+                            "window": "weekly",
+                            "resetTime": "2026-09-14T02:04:48Z",
+                            "remainingFraction": 0.9995
+                        },
+                        {
+                            "bucketId": "gemini-5h",
+                            "displayName": "Five Hour Limit Remaining",
+                            "window": "5h",
+                            "resetTime": "2026-09-07T09:24:33Z",
+                            "remainingFraction": 1.0
+                        }
+                    ]
+                },
+                {
+                    "displayName": "Claude and GPT models",
+                    "description": "Models within this group: Claude Opus, Claude Sonnet, GPT-OSS",
+                    "buckets": [
+                        {
+                            "bucketId": "3p-weekly",
+                            "displayName": "Weekly Limit Remaining",
+                            "window": "weekly",
+                            "resetTime": "2026-09-14T04:24:33Z",
+                            "remainingFraction": 0.72
+                        },
+                        {
+                            "bucketId": "3p-5h",
+                            "displayName": "Five Hour Limit Remaining",
+                            "window": "5h",
+                            "resetTime": "2026-09-07T09:24:33Z",
+                            "remainingFraction": 0.45
+                        }
+                    ]
+                }
+            ],
+            "description": "Within each group, models share a weekly limit and a 5-hour limit."
+        }"#;
+
+        let summary: Result<QuotaSummary, _> = serde_json::from_str(sample_json);
+        assert!(summary.is_ok(), "Failed to parse QuotaSummary: {:?}", summary.err());
+        let summary = summary.unwrap();
+        assert_eq!(summary.groups.len(), 2);
+        assert_eq!(summary.groups[0].display_name, "Gemini Models");
+        assert_eq!(summary.groups[0].buckets.len(), 2);
+        assert_eq!(summary.groups[0].buckets[0].display_name, "Weekly Limit Remaining");
+        assert_eq!(summary.groups[0].buckets[0].remaining_fraction, Some(0.9995));
+        assert_eq!(summary.groups[1].display_name, "Claude and GPT models");
+        assert_eq!(summary.groups[1].buckets[1].display_name, "Five Hour Limit Remaining");
+        assert_eq!(summary.groups[1].buckets[1].remaining_fraction, Some(0.45));
+    }
 }
