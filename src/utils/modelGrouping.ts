@@ -2,6 +2,7 @@ import { ModelQuota, QuotaBucket, QuotaGroup, QuotaSummary } from "../types";
 
 export interface ModelGroup {
   name: string; // "Claude / GPT" | "Gemini" | "Other"
+  versionTag?: string | null; // e.g. "Claude 5.5", "Claude 4.6"
   models: ModelQuota[];
   remainingPercentage: number | null;
   isExhausted: boolean;
@@ -10,6 +11,23 @@ export interface ModelGroup {
   weeklyBucket?: QuotaBucket | null;
   fiveHourBucket?: QuotaBucket | null;
   quotaGroup?: QuotaGroup | null;
+}
+
+/**
+ * Detects the Claude model generation/version (e.g. "Claude 5.5", "Claude 4.6")
+ * available to an account.
+ */
+export function detectModelVersionTag(models: ModelQuota[]): string | null {
+  if (!models || models.length === 0) return null;
+  const hasClaude55 = models.some(
+    (m) => m.modelId.includes("5-5") || (m.label && m.label.includes("5.5"))
+  );
+  if (hasClaude55) return "Claude 5.5";
+  const hasClaude46 = models.some(
+    (m) => m.modelId.includes("4-6") || (m.label && m.label.includes("4.6"))
+  );
+  if (hasClaude46) return "Claude 4.6";
+  return null;
 }
 
 /**
@@ -184,6 +202,7 @@ export function groupModels(models: ModelQuota[], quotaSummary?: QuotaSummary | 
 
     result.push({
       name: familyName,
+      versionTag: familyName === "Claude / GPT" ? detectModelVersionTag(groupModelsList) : null,
       models: modelsWithQuota,
       remainingPercentage: minPct,
       isExhausted,

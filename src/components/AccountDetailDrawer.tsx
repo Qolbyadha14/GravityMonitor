@@ -178,6 +178,16 @@ export const AccountDetailDrawer: React.FC<AccountDetailDrawerProps> = ({
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-bold text-card-foreground">{group.name} Quota</span>
+                          {group.versionTag && (
+                            <span className={cn(
+                              "text-[9px] px-1.5 py-0.2 rounded font-semibold border",
+                              group.versionTag === "Claude 5.5"
+                                ? "bg-primary/15 text-primary border-primary/25"
+                                : "bg-secondary text-muted-foreground border-border"
+                            )}>
+                              {group.versionTag}
+                            </span>
+                          )}
                           {group.name === "Claude / GPT" && (
                             <span className="text-[9px] px-1.5 py-0.2 rounded bg-primary/10 text-primary font-medium border border-primary/20">
                               Shared Quota

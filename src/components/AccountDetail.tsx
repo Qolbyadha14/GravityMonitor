@@ -355,6 +355,16 @@ export const AccountDetail: React.FC<AccountDetailProps> = ({
                         <p className="text-sm font-bold text-card-foreground">
                           {group.name} Quota
                         </p>
+                        {group.versionTag && (
+                          <span className={cn(
+                            "text-[9.5px] px-1.5 py-0.5 rounded font-semibold border",
+                            group.versionTag === "Claude 5.5"
+                              ? "bg-primary/15 text-primary border-primary/25"
+                              : "bg-secondary text-muted-foreground border-border"
+                          )}>
+                            {group.versionTag}
+                          </span>
+                        )}
                         {group.name === "Claude / GPT" ? (
                           <span className="text-[9.5px] px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 font-medium">
                             Shared Quota

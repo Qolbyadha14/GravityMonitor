@@ -419,6 +419,16 @@ fn sync_account_models_cache(acc_dir: &std::path::Path, access_token: &str) {
             continue;
         };
 
+        let tab_model_ids: Vec<String> = data
+            .get("tabModelIds")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|val| val.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
+
         let mut models_vec = Vec::new();
         for (model_id, m) in raw_models {
             let label = m.get("displayName")
@@ -433,7 +443,8 @@ fn sync_account_models_cache(acc_dir: &std::path::Path, access_token: &str) {
                 .and_then(|q| q.get("resetTime"))
                 .and_then(|r| r.as_str())
                 .map(|s| s.to_string());
-            let is_autocomplete_only = model_id.contains("gemini-2.5")
+            let is_autocomplete_only = tab_model_ids.iter().any(|tid| tid == model_id)
+                || model_id.contains("gemini-2.5")
                 || label.contains("Gemini 2.5")
                 || model_id.starts_with("tab_")
                 || model_id.starts_with("chat_");
@@ -498,17 +509,30 @@ fn sync_account_quota_summary(acc_dir: &std::path::Path) {
     sync_account_models_cache(acc_dir, &tokens.access_token);
 }
 
+/// Resolves an account directory by email, supporting both standard email directory names
+/// (e.g. "user@gmail.com") and sanitized variants (e.g. "user_gmail.com").
+fn get_account_dir(config_dir: &std::path::Path, email: &str) -> Option<PathBuf> {
+    let accounts_dir = config_dir.join("accounts");
+    let direct = accounts_dir.join(email);
+    if direct.is_dir() {
+        return Some(direct);
+    }
+    let sanitized = accounts_dir.join(email.replace('@', "_"));
+    if sanitized.is_dir() {
+        return Some(sanitized);
+    }
+    None
+}
+
 /// Syncs quota summary for a single account by email using guard clauses.
 fn sync_single_account_quota_summary(email: &str) {
     let Some(config_dir) = get_config_dir() else {
         return;
     };
 
-    let sanitized = email.replace("@", "_");
-    let acc_dir = config_dir.join("accounts").join(&sanitized);
-    if !acc_dir.exists() {
+    let Some(acc_dir) = get_account_dir(&config_dir, email) else {
         return;
-    }
+    };
 
     sync_account_quota_summary(&acc_dir);
 }
@@ -793,9 +817,7 @@ fn remove_account(email: String) -> Result<String, AppError> {
     let cli_res = run_cli_command(&format!("accounts remove {} --force", email));
 
     if let Some(config_dir) = get_config_dir() {
-        let sanitized = email.replace("@", "_");
-        let acc_dir = config_dir.join("accounts").join(&sanitized);
-        if acc_dir.exists() {
+        if let Some(acc_dir) = get_account_dir(&config_dir, &email) {
             let _ = fs::remove_dir_all(&acc_dir);
         }
 
@@ -1096,5 +1118,33 @@ mod tests {
         assert_eq!(summary.groups[1].display_name, "Claude and GPT models");
         assert_eq!(summary.groups[1].buckets[1].display_name, "Five Hour Limit Remaining");
         assert_eq!(summary.groups[1].buckets[1].remaining_fraction, Some(0.45));
+    }
+
+    #[test]
+    fn test_get_account_dir_resolution() {
+        let temp_dir = env::temp_dir().join(format!("agm_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let accounts_dir = temp_dir.join("accounts");
+        fs::create_dir_all(&accounts_dir).unwrap();
+
+        // 1. Account with literal '@'
+        let email_at = "test.user@gmail.com";
+        let dir_at = accounts_dir.join(email_at);
+        fs::create_dir(&dir_at).unwrap();
+
+        let resolved_at = get_account_dir(&temp_dir, email_at);
+        assert_eq!(resolved_at, Some(dir_at));
+
+        // 2. Account with sanitized '_'
+        let email_underscore = "other.user@gmail.com";
+        let dir_underscore = accounts_dir.join("other.user_gmail.com");
+        fs::create_dir(&dir_underscore).unwrap();
+
+        let resolved_underscore = get_account_dir(&temp_dir, email_underscore);
+        assert_eq!(resolved_underscore, Some(dir_underscore));
+
+        // 3. Nonexistent account
+        assert_eq!(get_account_dir(&temp_dir, "nonexistent@gmail.com"), None);
+
+        let _ = fs::remove_dir_all(&temp_dir);
     }
 }

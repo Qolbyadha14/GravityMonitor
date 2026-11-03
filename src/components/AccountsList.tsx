@@ -1,6 +1,6 @@
 import React from "react";
 import { AccountData, ModelQuota } from "../types";
-import { groupModels } from "../utils/modelGrouping";
+import { groupModels, detectModelVersionTag } from "../utils/modelGrouping";
 import { Star, Shield, ShieldAlert, AlertCircle, Sparkles } from "lucide-react";
 import { cn } from "../utils/cn";
 
@@ -98,6 +98,7 @@ export const AccountsList: React.FC<AccountsListProps> = ({
         const isSelected = account.email === selectedEmail;
         const chatModels = account.cachedSnapshot?.models?.filter((m) => !m.isAutocompleteOnly) ?? [];
         const modelCount = chatModels.length;
+        const versionTag = detectModelVersionTag(chatModels);
         const displayItems = getModelDisplayItems(chatModels, account.quotaSummary);
 
         return (
@@ -213,6 +214,21 @@ export const AccountsList: React.FC<AccountsListProps> = ({
                     <span className="opacity-40">·</span>
                     <Sparkles size={9} className="shrink-0" />
                     <span>{modelCount} models</span>
+                  </>
+                )}
+                {versionTag && (
+                  <>
+                    <span className="opacity-40">·</span>
+                    <span
+                      className={cn(
+                        "text-[9px] px-1 py-0.2 rounded font-medium",
+                        versionTag === "Claude 5.5"
+                          ? "bg-primary/15 text-primary border border-primary/25 font-semibold"
+                          : "bg-secondary text-muted-foreground border border-border"
+                      )}
+                    >
+                      {versionTag}
+                    </span>
                   </>
                 )}
               </div>
