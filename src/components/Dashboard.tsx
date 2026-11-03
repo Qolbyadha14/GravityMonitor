@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useApp } from "../context/AppContext";
-import { AccountsList } from "./AccountsList";
-import { AccountDetail } from "./AccountDetail";
+import { StatusBoard } from "./StatusBoard";
+import { AccountDetailDrawer } from "./AccountDetailDrawer";
 import { AddAccountModal } from "./AddAccountModal";
 import { RefreshCw, Plus, Clock, Activity, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { cn } from "../utils/cn";
@@ -21,14 +21,14 @@ export const Dashboard: React.FC = () => {
 
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [selectedEmail, setSelectedEmail] = useState<string | null>(null);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
-  // Auto-select the active account on load, or first account
+  // Auto-select first account on load
   useEffect(() => {
     if (accounts.length === 0) {
       setSelectedEmail(null);
       return;
     }
-    // If nothing selected yet, pick the active account or first
     setSelectedEmail((prev) => {
       if (prev && accounts.find((a) => a.email === prev)) return prev;
       const active = accounts.find((a) => a.isActive);
@@ -38,7 +38,6 @@ export const Dashboard: React.FC = () => {
 
   const handleRemove = async (email: string) => {
     await removeAcc(email);
-    // If removed account was selected, pick another
     setSelectedEmail((prev) => {
       if (prev !== email) return prev;
       const remaining = accounts.filter((a) => a.email !== email);
@@ -63,7 +62,6 @@ export const Dashboard: React.FC = () => {
       .filter((m) => m.remainingPercentage !== undefined && m.remainingPercentage !== null)
       .map((m) => m.remainingPercentage as number);
 
-    // Also factor in quotaSummary buckets (Weekly & 5-Hour limits)
     const summaryBuckets = acc.quotaSummary?.groups?.flatMap((g) => g.buckets) ?? [];
     const bucketPcts = summaryBuckets
       .filter((b) => b.remainingFraction !== undefined && b.remainingFraction !== null)
@@ -82,6 +80,11 @@ export const Dashboard: React.FC = () => {
     }
   });
 
+  const handleSelectAccount = (email: string) => {
+    setSelectedEmail(email);
+    setIsDrawerOpen(true);
+  };
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* ── Top bar ──────────────────────────────────────────────────────── */}
@@ -94,21 +97,21 @@ export const Dashboard: React.FC = () => {
           </span>
 
           {healthyCount > 0 && (
-            <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-success/10 text-success border border-success/20">
+            <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100/60 text-emerald-700 border border-emerald-200">
               <CheckCircle2 size={10} />
               {healthyCount} healthy
             </span>
           )}
           {warningCount > 0 && (
-            <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-warning/10 text-warning border border-warning/20">
+            <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-100/60 text-amber-700 border border-amber-200">
               <AlertTriangle size={10} />
-              {warningCount} warning
+              {warningCount} caution
             </span>
           )}
           {exhaustedCount > 0 && (
-            <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-danger/10 text-danger border border-danger/20">
+            <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-red-100/60 text-red-700 border border-red-200">
               <AlertTriangle size={10} />
-              {exhaustedCount} exhausted
+              {exhaustedCount} critical
             </span>
           )}
 
@@ -157,35 +160,21 @@ export const Dashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* ── Split Panel ──────────────────────────────────────────────────── */}
-      <div className="flex-1 flex min-h-0 overflow-hidden">
-        {/* Left: account list sidebar */}
-        <aside className="w-64 shrink-0 border-r border-border bg-card flex flex-col overflow-hidden">
-          <div className="px-3 pt-3 pb-1">
-            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest px-1">
-              Connected Accounts
-            </p>
-          </div>
-          <div className="flex-1 overflow-y-auto pt-1">
-            <AccountsList
-              accounts={accounts}
-              selectedEmail={selectedEmail}
-              onSelect={setSelectedEmail}
-            />
-          </div>
-        </aside>
-
-        {/* Right: account detail panel */}
-        <div className="flex-1 min-w-0 flex flex-col overflow-hidden bg-background">
-          <AccountDetail
-            account={selectedAccount}
-            syncing={syncing}
-            onSync={syncSingle}
-            onSwitch={switchActive}
-            onRemove={handleRemove}
-          />
-        </div>
+      {/* ── Main Content: StatusBoard ────────────────────────────────────── */}
+      <div className="flex-1 min-h-0 overflow-hidden bg-background">
+        <StatusBoard accounts={accounts} onAccountSelect={handleSelectAccount} />
       </div>
+
+      {/* ── Detail Drawer ────────────────────────────────────────────────── */}
+      <AccountDetailDrawer
+        isOpen={isDrawerOpen}
+        onClose={() => setIsDrawerOpen(false)}
+        account={selectedAccount}
+        syncing={syncing}
+        onSync={syncSingle}
+        onSwitch={switchActive}
+        onRemove={handleRemove}
+      />
 
       {/* Login modal */}
       <AddAccountModal isOpen={isLoginModalOpen} onClose={() => setIsLoginModalOpen(false)} />
