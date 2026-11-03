@@ -154,3 +154,80 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--muted-foreground);
 }
+
+/* Responsive Layout */
+@media (max-width: 768px) {
+  body {
+    overflow-y: auto;
+  }
+
+  /* Stack sidebar and main on smaller screens */
+  .flex.h-screen {
+    flex-direction: column;
+    height: auto;
+  }
+
+  /* Reduce padding on smaller screens */
+  main {
+    padding: clamp(1rem, 2vw, 2rem) !important;
+  }
+
+  /* Responsive text sizing */
+  h1 {
+    font-size: clamp(1rem, 2vw, 1.25rem);
+  }
+
+  h2 {
+    font-size: clamp(0.875rem, 1.5vw, 1rem);
+  }
+
+  /* Ensure buttons are touch-friendly (44px minimum) */
+  button {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* Sidebar adjustments */
+  aside {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    flex-direction: row;
+    justify-content: space-between;
+    padding: 1rem;
+  }
+
+  /* Adjust nav to horizontal on mobile */
+  nav {
+    display: flex;
+    gap: 1rem;
+    flex-direction: row;
+  }
+
+  /* Sidebar footer adjusts */
+  aside > div:last-child {
+    border-left: 1px solid var(--border);
+    border-bottom: none;
+    padding-left: 1rem;
+    padding-top: 0;
+  }
+}
+
+@media (max-width: 480px) {
+  /* Extra compact for very small screens */
+  main {
+    padding: 1rem !important;
+  }
+
+  .space-y-6 {
+    --tw-space-y-reverse: 0;
+    margin-top: calc(0.75rem * calc(1 - var(--tw-space-y-reverse)));
+    margin-bottom: calc(0.75rem * var(--tw-space-y-reverse));
+  }
+
+  .space-y-3 {
+    --tw-space-y-reverse: 0;
+    margin-top: calc(0.5rem * calc(1 - var(--tw-space-y-reverse)));
+    margin-bottom: calc(0.5rem * var(--tw-space-y-reverse));
+  }
+}

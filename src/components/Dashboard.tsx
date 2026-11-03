@@ -11,8 +11,6 @@ export const Dashboard: React.FC = () => {
     accounts,
     syncing,
     lastRefresh,
-    settings,
-    updateSettings,
     syncAll,
     syncSingle,
     switchActive,
@@ -125,22 +123,6 @@ export const Dashboard: React.FC = () => {
 
         {/* Right: controls */}
         <div className="flex items-center gap-2 shrink-0">
-          {/* Auto-Refresh */}
-          <div className="flex items-center border border-border rounded-md px-2.5 py-1 bg-card text-xs text-card-foreground gap-1.5 shadow-xs">
-            <Clock size={12} className="text-muted-foreground" />
-            <span className="font-medium text-muted-foreground">Auto:</span>
-            <select
-              value={settings.autoRefreshInterval}
-              onChange={(e) => updateSettings({ autoRefreshInterval: e.target.value as any })}
-              className="bg-transparent font-semibold border-0 focus:outline-hidden p-0 text-xs cursor-pointer text-card-foreground"
-            >
-              <option value="manual">Manual</option>
-              <option value="30s">30s</option>
-              <option value="1m">1m</option>
-              <option value="5m">5m</option>
-            </select>
-          </div>
-
           <button
             onClick={syncAll}
             disabled={syncing}

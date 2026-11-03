@@ -29,6 +29,29 @@ export const Settings: React.FC = () => {
 
       {/* Settings Sections */}
       <div className="space-y-6 max-w-2xl text-card-foreground">
+        {/* Auto-Refresh Settings */}
+        <div className="space-y-3">
+          <h2 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Auto-Refresh</h2>
+          <div className="border border-border bg-card p-4 rounded-lg flex items-center justify-between shadow-xs">
+            <div className="space-y-0.5">
+              <div className="text-sm font-semibold">Refresh Interval</div>
+              <div className="text-xs text-muted-foreground">
+                Automatically sync quota data at set intervals.
+              </div>
+            </div>
+            <select
+              value={settings.autoRefreshInterval}
+              onChange={(e) => updateSettings({ autoRefreshInterval: e.target.value as any })}
+              className="bg-card border border-border rounded-md px-3 py-2 text-xs font-semibold focus:outline-hidden cursor-pointer text-card-foreground"
+            >
+              <option value="manual">Manual</option>
+              <option value="30s">30s</option>
+              <option value="1m">1m</option>
+              <option value="5m">5m</option>
+            </select>
+          </div>
+        </div>
+
         {/* Appearance Settings */}
         <div className="space-y-3">
           <h2 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Appearance</h2>
