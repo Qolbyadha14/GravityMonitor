@@ -1,13 +1,16 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Gravity Monitor",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "identifier": "com.gravitymonitor.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "npm run build",
-    "frontendDist": "../dist"
+    "frontendDist": "../dist",
+    "windows": {
+      "staticVCRuntime": true
+    }
   },
   "app": {
     "windows": [
