@@ -1036,6 +1036,7 @@ pub fn run() {
             login_process: Arc::new(Mutex::new(None)),
         })
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             get_accounts_data,
             sync_all_accounts,

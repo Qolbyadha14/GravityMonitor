@@ -1,8 +1,9 @@
 import React, { useState } from "react";
 import { useApp } from "../context/AppContext";
-import { FolderOpen, RefreshCcw, Trash2, Sun, Moon, Monitor } from "lucide-react";
+import { FolderOpen, RefreshCcw, Trash2, Sun, Moon, Monitor, Download, RefreshCw } from "lucide-react";
 import { cn } from "../utils/cn";
 import { ConfirmModal } from "./ConfirmModal";
+import { useUpdater } from "../hooks/useUpdater";
 
 export const Settings: React.FC = () => {
   const {
@@ -16,6 +17,7 @@ export const Settings: React.FC = () => {
   } = useApp();
 
   const [showConfirmClear, setShowConfirmClear] = useState(false);
+  const updater = useUpdater();
 
   return (
     <div className="space-y-6">
@@ -174,6 +176,41 @@ export const Settings: React.FC = () => {
                 <span className="text-muted-foreground block">antigravity-usage CLI Version</span>
                 <span className="font-semibold font-mono">{versions?.cli || "Checking..."}</span>
               </div>
+            </div>
+
+            {/* In-App Updater Row */}
+            <div className="border-t border-border pt-3 flex items-center justify-between">
+              <div className="space-y-0.5">
+                <div className="text-xs font-semibold">Software Updates</div>
+                <div className="text-[11px] text-muted-foreground">
+                  {updater.status === "checking" && "Checking for latest release..."}
+                  {updater.status === "available" && `Version ${updater.update?.version} available!`}
+                  {updater.status === "up-to-date" && "You are on the latest version."}
+                  {updater.status === "downloading" && `Downloading update: ${updater.progress}%`}
+                  {updater.status === "installing" && "Installing & restarting..."}
+                  {updater.status === "error" && `Error: ${updater.error}`}
+                  {updater.status === "idle" && "Check if a newer version is available on GitHub."}
+                </div>
+              </div>
+
+              {updater.status === "available" ? (
+                <button
+                  onClick={updater.installUpdate}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground text-xs font-semibold rounded-md shadow-xs hover:bg-primary/90 transition cursor-pointer"
+                >
+                  <Download size={13} />
+                  Update to v{updater.update?.version}
+                </button>
+              ) : (
+                <button
+                  onClick={updater.checkForUpdate}
+                  disabled={updater.status === "checking" || updater.status === "downloading" || updater.status === "installing"}
+                  className="flex items-center gap-1.5 px-3 py-1.5 border border-border hover:bg-secondary text-xs font-semibold rounded-md transition disabled:opacity-50 cursor-pointer"
+                >
+                  <RefreshCw size={13} className={cn(updater.status === "checking" && "animate-spin")} />
+                  Check Updates
+                </button>
+              )}
             </div>
           </div>
         </div>

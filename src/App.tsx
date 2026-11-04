@@ -2,12 +2,14 @@ import { useState } from "react";
 import { AppProvider, useApp } from "./context/AppContext";
 import { Dashboard } from "./components/Dashboard";
 import { Settings } from "./components/Settings";
-import { Activity, Settings as SettingsIcon, RefreshCw, AlertCircle, X } from "lucide-react";
+import { Activity, Settings as SettingsIcon, RefreshCw, AlertCircle, X, Download } from "lucide-react";
 import { cn } from "./utils/cn";
+import { useUpdater } from "./hooks/useUpdater";
 
 function AppContent() {
   const [activeTab, setActiveTab] = useState<"dashboard" | "settings">("dashboard");
   const { activeAccount, error, clearError, syncing } = useApp();
+  const updater = useUpdater();
 
   return (
     <div className="flex h-screen bg-background text-card-foreground overflow-hidden font-sans">
@@ -106,6 +108,33 @@ function AppContent() {
             >
               <X size={13} />
             </button>
+          </div>
+        )}
+
+        {/* Update notification banner */}
+        {updater.status === "available" && (
+          <div className="bg-primary/10 border-b border-primary/20 text-card-foreground px-4 py-2 text-xs font-medium flex items-center justify-between select-none gap-3">
+            <div className="flex items-center gap-2 min-w-0">
+              <Download size={14} className="text-primary shrink-0" />
+              <span>
+                New version <strong className="font-semibold text-primary">v{updater.update?.version}</strong> is available!
+              </span>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={updater.installUpdate}
+                className="px-2.5 py-1 bg-primary text-primary-foreground font-semibold rounded text-[11px] shadow-xs hover:bg-primary/90 transition cursor-pointer"
+              >
+                Install & Restart
+              </button>
+              <button
+                onClick={updater.dismiss}
+                className="p-1 rounded text-muted-foreground hover:text-card-foreground transition cursor-pointer"
+                title="Dismiss"
+              >
+                <X size={13} />
+              </button>
+            </div>
           </div>
         )}
 

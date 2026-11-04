@@ -102,6 +102,12 @@ export function groupModels(models: ModelQuota[], quotaSummary?: QuotaSummary | 
   const groupsMap = new Map<string, ModelQuota[]>();
 
   models.forEach((m) => {
+    // Guard clause: ignore internal editor/autocomplete models (e.g. chat_20706, tab_*)
+    // from generating top-level agent quota cards
+    if (m.isAutocompleteOnly || m.modelId.startsWith("chat_") || m.modelId.startsWith("tab_")) {
+      return;
+    }
+
     const idOrLabel = `${m.label || ""} ${m.modelId}`.toLowerCase();
     let family = "Other";
     if (idOrLabel.includes("claude") || idOrLabel.includes("gpt")) {

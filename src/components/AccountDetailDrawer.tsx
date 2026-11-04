@@ -29,7 +29,8 @@ export const AccountDetailDrawer: React.FC<AccountDetailDrawerProps> = ({
   if (!isOpen || !account) return null;
 
   const snapshot = account.cachedSnapshot;
-  const models = snapshot?.models || [];
+  const allModels = snapshot?.models || [];
+  const chatModels = allModels.filter((m) => !m.isAutocompleteOnly);
   const credits = account.cachedCredits;
 
   const getStatusColor = (status: string) => {
@@ -161,9 +162,9 @@ export const AccountDetailDrawer: React.FC<AccountDetailDrawerProps> = ({
               <span>Model Quota Status</span>
             </div>
 
-            {models.length > 0 ? (
+            {chatModels.length > 0 ? (
               <div className="space-y-3">
-                {groupModels(models, account.quotaSummary).map((group) => {
+                {groupModels(chatModels, account.quotaSummary).map((group) => {
                   const hasDualLimits = !!(group.fiveHourBucket || group.weeklyBucket);
                   const fiveHourPct = group.fiveHourBucket?.remainingFraction ?? group.remainingPercentage;
                   const fiveHourExh = group.fiveHourBucket?.remainingFraction === 0 || group.isExhausted;
