@@ -1029,6 +1029,11 @@ fn get_wakeup_status() -> serde_json::Value {
     })
 }
 
+#[tauri::command]
+fn restart_app(app: tauri::AppHandle) {
+    app.restart();
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1050,7 +1055,8 @@ pub fn run() {
             clear_all_sessions,
             get_versions,
             get_wakeup_status,
-            refresh_quota_summary
+            refresh_quota_summary,
+            restart_app
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

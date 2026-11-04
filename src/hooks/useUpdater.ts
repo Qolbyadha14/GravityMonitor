@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { check, Update } from "@tauri-apps/plugin-updater";
+import { invoke } from "@tauri-apps/api/core";
 
 type UpdateStatus = "idle" | "checking" | "available" | "downloading" | "installing" | "up-to-date" | "error";
 
@@ -55,6 +56,8 @@ export function useUpdater() {
           setState((s) => ({ ...s, status: "installing", progress: 100 }));
         }
       });
+      // Relaunch app to apply installed update
+      await invoke("restart_app");
     } catch (e) {
       setState((s) => ({ ...s, status: "error", error: String(e) }));
     }
