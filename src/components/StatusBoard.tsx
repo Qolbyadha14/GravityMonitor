@@ -36,20 +36,24 @@ const getAccountHealth = (
   return "healthy";
 };
 
-const getMinQuotaRemaining = (account: AccountData): number | null => {
+const getFiveHourPct = (account: AccountData): number | null => {
+  const summaryBuckets = account.quotaSummary?.groups?.flatMap((g) => g.buckets) ?? [];
+  const fiveHourBucket = summaryBuckets.find((b) => b.window === "5h");
+  if (fiveHourBucket?.remainingFraction !== undefined && fiveHourBucket.remainingFraction !== null) {
+    return fiveHourBucket.remainingFraction;
+  }
   const snap = account.cachedSnapshot;
   const models = snap?.models?.filter((m) => !m.isAutocompleteOnly) ?? [];
   const pcts = models
     .filter((m) => m.remainingPercentage !== undefined && m.remainingPercentage !== null)
     .map((m) => m.remainingPercentage as number);
+  return pcts.length > 0 ? Math.min(...pcts) : null;
+};
 
+const getWeeklyPct = (account: AccountData): number | null => {
   const summaryBuckets = account.quotaSummary?.groups?.flatMap((g) => g.buckets) ?? [];
-  const bucketPcts = summaryBuckets
-    .filter((b) => b.remainingFraction !== undefined && b.remainingFraction !== null)
-    .map((b) => b.remainingFraction as number);
-
-  const allPcts = [...pcts, ...bucketPcts];
-  return allPcts.length > 0 ? Math.min(...allPcts) : null;
+  const weeklyBucket = summaryBuckets.find((b) => b.window === "weekly");
+  return weeklyBucket?.remainingFraction ?? null;
 };
 
 const getFiveHourResetIn = (account: AccountData): string | null => {
@@ -63,6 +67,18 @@ const getFiveHourResetIn = (account: AccountData): string | null => {
   if (hours > 24) return `${Math.floor(hours / 24)}d`;
   if (hours > 0) return `${hours}h ${minutes}m`;
   return `${minutes}m`;
+};
+
+const getWeeklyResetIn = (account: AccountData): string | null => {
+  const summaryBuckets = account.quotaSummary?.groups?.flatMap((g) => g.buckets) ?? [];
+  const weeklyBucket = summaryBuckets.find((b) => b.window === "weekly");
+  if (!weeklyBucket?.resetTime) return null;
+  const ms = new Date(weeklyBucket.resetTime).getTime() - Date.now();
+  if (ms <= 0) return "Now";
+  const days = Math.floor(ms / (1000 * 60 * 60 * 24));
+  const hours = Math.floor((ms % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+  if (days > 0) return `${days}d ${hours}h`;
+  return `${hours}h`;
 };
 
 export const StatusBoard: React.FC<StatusBoardProps> = ({ accounts, onAccountSelect }) => {
@@ -83,11 +99,11 @@ export const StatusBoard: React.FC<StatusBoardProps> = ({ accounts, onAccountSel
     if (statusAccounts.length === 0) return null;
 
     return (
-      <div key={sectionKey} className={cn("border rounded-lg overflow-hidden", borderColor)}>
+      <div key={sectionKey} className={cn("border rounded-xl overflow-hidden shadow-xs", borderColor)}>
         {/* Header */}
         <div
           className={cn(
-            "w-full flex items-center gap-2 px-4 py-3 font-semibold text-sm",
+            "w-full flex items-center gap-2 px-4 py-2.5 font-bold text-xs uppercase tracking-wider",
             bgColor
           )}
         >
@@ -97,15 +113,18 @@ export const StatusBoard: React.FC<StatusBoardProps> = ({ accounts, onAccountSel
           </span>
         </div>
 
-        {/* Accounts */}
-        <div className="px-3 py-2 space-y-1 bg-card/30">
+        {/* Responsive Accounts Grid */}
+        <div className="p-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 bg-card/25">
           {statusAccounts.map((acc) => (
             <AccountCard
               key={acc.email}
               email={acc.email}
               status={acc.status as "valid" | "expired" | "invalid"}
-              minQuotaRemaining={getMinQuotaRemaining(acc)}
-              fiveHourResetIn={getFiveHourResetIn(acc) ?? undefined}
+              planType={acc.cachedSnapshot?.planType}
+              fiveHourPct={getFiveHourPct(acc)}
+              fiveHourResetIn={getFiveHourResetIn(acc)}
+              weeklyPct={getWeeklyPct(acc)}
+              weeklyResetIn={getWeeklyResetIn(acc)}
               isActive={acc.isActive}
               onClick={() => onAccountSelect?.(acc.email)}
             />
@@ -127,32 +146,32 @@ export const StatusBoard: React.FC<StatusBoardProps> = ({ accounts, onAccountSel
   }
 
   return (
-    <div className="space-y-3 p-4">
+    <div className="space-y-4 p-4 overflow-y-auto max-h-full">
       {renderSection(
-        "Critical",
-        <AlertTriangle size={16} className="text-red-600" />,
+        "Critical Attention",
+        <AlertTriangle size={15} className="text-danger" />,
         grouped.critical,
         "critical",
-        "border-red-200 bg-red-50/30",
-        "bg-red-100/40 text-red-700"
+        "border-danger/30 bg-danger/5",
+        "bg-danger/10 text-danger border-b border-danger/20"
       )}
 
       {renderSection(
         "Caution",
-        <AlertTriangle size={16} className="text-amber-600" />,
+        <AlertTriangle size={15} className="text-warning" />,
         grouped.caution,
         "caution",
-        "border-amber-200 bg-amber-50/30",
-        "bg-amber-100/40 text-amber-700"
+        "border-warning/30 bg-warning/5",
+        "bg-warning/10 text-warning border-b border-warning/20"
       )}
 
       {renderSection(
         "Healthy",
-        <CheckCircle2 size={16} className="text-emerald-600" />,
+        <CheckCircle2 size={15} className="text-success" />,
         grouped.healthy,
         "healthy",
-        "border-emerald-200 bg-emerald-50/30",
-        "bg-emerald-100/40 text-emerald-700"
+        "border-success/30 bg-success/5",
+        "bg-success/10 text-success border-b border-success/20"
       )}
     </div>
   );
