@@ -338,7 +338,6 @@ export const AccountDetail: React.FC<AccountDetailProps> = ({
           {chatModels.length > 0 ? (
             <div className="space-y-3">
               {groupModels(chatModels, account.quotaSummary).map((group) => {
-                const hasDualLimits = !!(group.fiveHourBucket || group.weeklyBucket);
                 const fiveHourPct = group.fiveHourBucket?.remainingFraction ?? group.remainingPercentage;
                 const fiveHourExh = group.fiveHourBucket?.remainingFraction === 0 || group.isExhausted;
                 const fiveHourReset = formatResetDuration(group.fiveHourBucket?.resetTime, group.timeUntilResetMs);
@@ -431,7 +430,15 @@ export const AccountDetail: React.FC<AccountDetailProps> = ({
                               </span>
                             )}
                             <span className={cn("font-bold font-mono text-xs", getQuotaTextColor(weeklyPct, weeklyExh))}>
-                              {weeklyExh ? "EXHAUSTED" : weeklyPct !== undefined && weeklyPct !== null ? `${Math.round(weeklyPct * 100)}%` : !hasDualLimits ? "Sync to view" : "N/A"}
+                              {weeklyExh
+                                ? "EXHAUSTED"
+                                : weeklyPct !== undefined && weeklyPct !== null
+                                ? `${Math.round(weeklyPct * 100)}%`
+                                : !account.quotaSummary
+                                ? "Sync to view"
+                                : !group.weeklyBucket && group.name === "Gemini"
+                                ? "N/A (5h Rolling Only)"
+                                : "N/A"}
                             </span>
                           </div>
                         </div>
@@ -443,11 +450,15 @@ export const AccountDetail: React.FC<AccountDetailProps> = ({
                             />
                           </div>
                         )}
-                        {group.weeklyBucket?.description && (
+                        {group.weeklyBucket?.description ? (
                           <p className="text-[10px] text-muted-foreground/80 leading-tight">
                             {group.weeklyBucket.description}
                           </p>
-                        )}
+                        ) : account.quotaSummary && !group.weeklyBucket && group.name === "Gemini" ? (
+                          <p className="text-[10px] text-muted-foreground/80 leading-tight">
+                            Google only enforces weekly limits on Google AI Pro tier. Free tier uses 5-hour rolling limits only.
+                          </p>
+                        ) : null}
                       </div>
                     </div>
 
